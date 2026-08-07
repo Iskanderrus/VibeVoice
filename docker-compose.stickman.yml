@@ -1,0 +1,45 @@
+services:
+  vibevoice:
+    build:
+      context: .
+      dockerfile: Dockerfile.stickman
+      args:
+        VIBEVOICE_SOURCE_REVISION: ${VIBEVOICE_SOURCE_REVISION:?set exact fork commit SHA}
+        VIBEVOICE_MODEL_REVISION: ${VIBEVOICE_MODEL_REVISION:?set exact model revision}
+        VIBEVOICE_MODEL_REPOSITORY: vibevoice/VibeVoice-1.5B
+    environment:
+      VIBEVOICE_SOURCE_REPOSITORY: Iskanderrus/VibeVoice
+      VIBEVOICE_SOURCE_REVISION: ${VIBEVOICE_SOURCE_REVISION}
+      VIBEVOICE_MODEL_REPOSITORY: vibevoice/VibeVoice-1.5B
+      VIBEVOICE_MODEL_REVISION: ${VIBEVOICE_MODEL_REVISION}
+      VIBEVOICE_MODEL_PATH: /models/VibeVoice-1.5B
+      VIBEVOICE_MODEL_MANIFEST: /models/VibeVoice-1.5B/.stickman-model.json
+      VIBEVOICE_REQUIRE_MODEL_MANIFEST: "true"
+      VIBEVOICE_LOCAL_FILES_ONLY: "true"
+      VIBEVOICE_DEVICE: ${VIBEVOICE_DEVICE:-auto}
+      VIBEVOICE_DTYPE: ${VIBEVOICE_DTYPE:-auto}
+      VIBEVOICE_CPU_OFFLOAD: ${VIBEVOICE_CPU_OFFLOAD:-true}
+      VIBEVOICE_CUDA_MAX_MEMORY_MB: ${VIBEVOICE_CUDA_MAX_MEMORY_MB:-3400}
+      VIBEVOICE_CPU_MAX_MEMORY_GB: ${VIBEVOICE_CPU_MAX_MEMORY_GB:-24}
+      VIBEVOICE_IDLE_UNLOAD_SECONDS: ${VIBEVOICE_IDLE_UNLOAD_SECONDS:-300}
+      VIBEVOICE_GENERATION_TIMEOUT_SECONDS: ${VIBEVOICE_GENERATION_TIMEOUT_SECONDS:-1800}
+      VIBEVOICE_MAX_CONCURRENT_JOBS: "1"
+    ports:
+      - "127.0.0.1:8765:8765"
+    volumes:
+      - ${VIBEVOICE_MODEL_HOST_DIR:?set absolute model directory}:/models/VibeVoice-1.5B:ro
+      - ${VIBEVOICE_REFERENCE_HOST_DIR:?set absolute reference directory}:/shared/references:ro
+      - ${VIBEVOICE_OUTPUT_HOST_DIR:?set absolute output directory}:/shared/output:rw
+      - vibevoice-offload:/offload
+    gpus: all
+    read_only: true
+    tmpfs:
+      - /tmp:size=1g
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
+
+volumes:
+  vibevoice-offload:

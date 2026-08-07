@@ -1,0 +1,53 @@
+name: Stickman VibeVoice service
+
+on:
+  pull_request:
+    paths:
+      - "stickman_service/**"
+      - "tests/test_stickman_service.py"
+      - "scripts/create_stickman_model_manifest.py"
+      - "Dockerfile.stickman"
+      - "docker-compose.stickman.yml"
+      - "requirements-stickman.lock"
+      - "pyproject.toml"
+      - ".github/workflows/stickman-service.yml"
+  push:
+    branches: [main]
+    paths:
+      - "stickman_service/**"
+      - "tests/test_stickman_service.py"
+      - "scripts/create_stickman_model_manifest.py"
+      - "Dockerfile.stickman"
+      - "docker-compose.stickman.yml"
+      - "requirements-stickman.lock"
+      - "pyproject.toml"
+      - ".github/workflows/stickman-service.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install service test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            "fastapi==0.116.1" \
+            "httpx==0.28.1" \
+            "pydantic==2.11.7" \
+            "pytest==8.4.1"
+
+      - name: Compile service
+        run: python -m compileall -q stickman_service scripts/create_stickman_model_manifest.py
+
+      - name: Run contract tests
+        run: pytest -q tests/test_stickman_service.py
