@@ -13,15 +13,14 @@ readme = "README.md"
 requires-python = ">=3.9"
 classifiers = [
     "Programming Language :: Python :: 3",
-    # "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
 dependencies = [
     "torch",
     "accelerate==1.6.0",
-    "transformers==4.51.3", # we develop this project on transformers==4.51.3, later version may not be compatible
-    "datasets==3.5.0", # avoid issues with torchcodec
-    "peft", # for finetuning
+    "transformers==4.51.3",
+    "datasets==3.5.0",
+    "peft",
     "llvmlite>=0.40.0",
     "numba>=0.57.0",
     "diffusers",
@@ -37,15 +36,27 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Optional dependencies for streaming model web service
 streaming-web = [
     "fastapi",
     "uvicorn[standard]",
 ]
+stickman-service = [
+    "fastapi==0.116.1",
+    "uvicorn[standard]==0.35.0",
+    "pydantic==2.11.7",
+    "httpx==0.28.1",
+]
+stickman-test = [
+    "pytest==8.4.1",
+]
+
+[project.scripts]
+stickman-vibevoice-service = "stickman_service.__main__:main"
 
 [project.urls]
-"Homepage" = "https://github.com/microsoft/VibeVoice"
-"Bug Tracker" = "https://github.com/microsoft/VibeVoice/issues"
+Homepage = "https://github.com/Iskanderrus/VibeVoice"
+"Upstream Community Source" = "https://github.com/vibevoice-community/VibeVoice"
+"Stickman Integration" = "https://github.com/Iskanderrus/VibeVoice/blob/main/STICKMAN_SERVICE.md"
 
 [tool.setuptools.packages.find]
 where = ["."]

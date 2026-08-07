@@ -1,0 +1,60 @@
+ARG BASE_IMAGE=pytorch/pytorch:2.5.1-cuda12.1-cudnn9-runtime
+FROM ${BASE_IMAGE}
+
+ARG VIBEVOICE_SOURCE_REVISION
+ARG VIBEVOICE_MODEL_REVISION
+ARG VIBEVOICE_MODEL_REPOSITORY=vibevoice/VibeVoice-1.5B
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    HOME=/tmp \
+    XDG_CACHE_HOME=/tmp/.cache \
+    HF_HOME=/tmp/huggingface \
+    TORCH_HOME=/tmp/torch \
+    NUMBA_CACHE_DIR=/tmp/numba \
+    VIBEVOICE_SOURCE_REPOSITORY=Iskanderrus/VibeVoice \
+    VIBEVOICE_SOURCE_REVISION=${VIBEVOICE_SOURCE_REVISION} \
+    VIBEVOICE_SOURCE_REVISION_FILE=/opt/vibevoice/.stickman-source-revision \
+    VIBEVOICE_MODEL_REPOSITORY=${VIBEVOICE_MODEL_REPOSITORY} \
+    VIBEVOICE_MODEL_REVISION=${VIBEVOICE_MODEL_REVISION} \
+    VIBEVOICE_MODEL_PATH=/models/VibeVoice-1.5B \
+    VIBEVOICE_MODEL_MANIFEST=/models/VibeVoice-1.5B/.stickman-model.json \
+    VIBEVOICE_REQUIRE_MODEL_MANIFEST=true \
+    VIBEVOICE_LOCAL_FILES_ONLY=true \
+    VIBEVOICE_HOST=0.0.0.0 \
+    VIBEVOICE_PORT=8765 \
+    VIBEVOICE_OUTPUT_DIR=/shared/output \
+    VIBEVOICE_REFERENCE_DIR=/shared/references \
+    VIBEVOICE_OFFLOAD_DIR=/offload
+
+RUN test -n "${VIBEVOICE_SOURCE_REVISION}" \
+ && test -n "${VIBEVOICE_MODEL_REVISION}" \
+ && test "${VIBEVOICE_MODEL_REPOSITORY}" = "vibevoice/VibeVoice-1.5B"
+
+WORKDIR /opt/vibevoice
+
+COPY requirements-stickman.lock /tmp/requirements-stickman.lock
+RUN python -m pip install --no-cache-dir -r /tmp/requirements-stickman.lock
+
+COPY pyproject.toml README.md LICENSE ./
+COPY vibevoice ./vibevoice
+COPY stickman_service ./stickman_service
+COPY scripts ./scripts
+COPY STICKMAN_INTEGRATION.md STICKMAN_SERVICE.md ./
+
+RUN printf '%s\n' "${VIBEVOICE_SOURCE_REVISION}" > /opt/vibevoice/.stickman-source-revision \
+ && python -m pip install --no-cache-dir --no-deps -e .
+
+RUN groupadd --gid 10001 vibevoice \
+ && useradd --uid 10001 --gid 10001 --create-home --shell /usr/sbin/nologin vibevoice \
+ && mkdir -p /models /shared/output /shared/references /offload \
+ && chown -R vibevoice:vibevoice /opt/vibevoice /shared/output /offload
+
+USER 10001:10001
+
+EXPOSE 8765
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health', timeout=2).read()" || exit 1
+
+CMD ["python", "-m", "stickman_service"]

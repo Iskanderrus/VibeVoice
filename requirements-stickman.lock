@@ -1,0 +1,23 @@
+# Direct dependency lock for the isolated service image. The accepted image digest
+# is the deployable artifact after the target-machine smoke test.
+accelerate==1.6.0
+transformers==4.51.3
+datasets==3.5.0
+peft==0.15.2
+llvmlite==0.44.0
+numba==0.61.2
+diffusers==0.33.1
+tqdm==4.67.1
+numpy==2.1.2
+scipy==1.15.2
+librosa==0.11.0
+ml-collections==1.1.0
+absl-py==2.2.2
+gradio==5.50.0
+av==14.3.0
+aiortc==1.13.0
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
+pydantic==2.11.7
+httpx==0.28.1
+pytest==8.4.1
