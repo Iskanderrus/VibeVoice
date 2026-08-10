@@ -1,27 +1,10 @@
 name: Stickman VibeVoice service
 
+# GitHub-hosted service CI is manual-only while the Actions budget is constrained.
+# Run local contract tests before merge unless this workflow is explicitly invoked.
+
 on:
-  pull_request:
-    paths:
-      - "stickman_service/**"
-      - "tests/test_stickman_service.py"
-      - "scripts/create_stickman_model_manifest.py"
-      - "Dockerfile.stickman"
-      - "docker-compose.stickman.yml"
-      - "requirements-stickman.lock"
-      - "pyproject.toml"
-      - ".github/workflows/stickman-service.yml"
-  push:
-    branches: [main]
-    paths:
-      - "stickman_service/**"
-      - "tests/test_stickman_service.py"
-      - "scripts/create_stickman_model_manifest.py"
-      - "Dockerfile.stickman"
-      - "docker-compose.stickman.yml"
-      - "requirements-stickman.lock"
-      - "pyproject.toml"
-      - ".github/workflows/stickman-service.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
