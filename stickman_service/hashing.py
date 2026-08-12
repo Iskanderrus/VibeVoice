@@ -38,17 +38,20 @@ def sha256_file(path: Path, *, block_size: int = 1024 * 1024) -> str:
 
 
 def resolve_under_root(path_value: str, root: Path, *, require_wav: bool = False) -> Path:
-    root_resolved = root.resolve()
-    candidate = Path(path_value)
-    if not candidate.is_absolute():
-        candidate = root_resolved / candidate
-    candidate = candidate.resolve()
+    try:
+        root_resolved = root.resolve(strict=True)
+        candidate = Path(path_value)
+        if not candidate.is_absolute():
+            candidate = root_resolved / candidate
+        candidate = candidate.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise ReferencePathError("reference path cannot be resolved safely") from exc
     try:
         candidate.relative_to(root_resolved)
     except ValueError as exc:
         raise ReferencePathError("path escapes configured reference root") from exc
     if not candidate.is_file():
-        raise ReferencePathError(f"reference file not found: {candidate}")
+        raise ReferencePathError("reference path is not a regular file")
     if require_wav and candidate.suffix.lower() != ".wav":
         raise ReferencePathError("speaker reference must be a .wav file")
     return candidate

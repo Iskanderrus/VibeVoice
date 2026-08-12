@@ -28,9 +28,88 @@ jobs:
             "httpx==0.28.1" \
             "pydantic==2.11.7" \
             "pytest==8.4.1"
+          python -m pip check
 
-      - name: Compile service
-        run: python -m compileall -q stickman_service scripts/create_stickman_model_manifest.py
+      - name: Resolve full production dependency lock
+        run: python -m pip install --dry-run --ignore-installed -r requirements-stickman.lock
+
+      - name: Compile service and tooling
+        run: |
+          python -m compileall -q stickman_service scripts/create_stickman_model_manifest.py
+          bash -n scripts/build_stickman_service.sh
+          bash -n scripts/verify_stickman_runtime.sh
+
+      - name: Verify owned-fork build guard
+        env:
+          VIBEVOICE_MODEL_REVISION: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          VIBEVOICE_TOKENIZER_REVISION: cccccccccccccccccccccccccccccccccccccccc
+        run: bash scripts/build_stickman_service.sh --check-only
+
+      - name: Validate runtime Compose without revision overrides
+        env:
+          VIBEVOICE_MODEL_HOST_DIR: /tmp/vibevoice-model
+          VIBEVOICE_REFERENCE_HOST_DIR: /tmp/vibevoice-refs
+          VIBEVOICE_OUTPUT_HOST_DIR: /tmp/vibevoice-output
+        run: docker compose -f docker-compose.stickman.yml config --quiet
+
+      - name: Exercise cryptographic model and tokenizer manifest tool
+        env:
+          TOKENIZER_REVISION: cccccccccccccccccccccccccccccccccccccccc
+        run: |
+          model=/tmp/vibevoice-manifest-model
+          cache="$model/.hf-cache/hub/models--Qwen--Qwen2.5-1.5B"
+          snapshot="$cache/snapshots/$TOKENIZER_REVISION"
+          locks="$model/.hf-cache/hub/.locks/models--Qwen--Qwen2.5-1.5B"
+          mkdir -p "$cache/refs" "$cache/blobs" "$cache/trees" "$snapshot" "$locks"
+          printf '%s\n' "$TOKENIZER_REVISION" > "$cache/refs/main"
+          printf '{}' > "$model/config.json"
+          printf 'weights' > "$model/model.safetensors"
+          printf '{"version":"1"}' > "$cache/blobs/tokenizer-json"
+          printf '{}' > "$cache/blobs/tokenizer-config"
+          printf 'a b' > "$cache/blobs/merges"
+          printf '{}' > "$cache/blobs/vocab"
+          ln -s ../../blobs/tokenizer-json "$snapshot/tokenizer.json"
+          ln -s ../../blobs/tokenizer-config "$snapshot/tokenizer_config.json"
+          ln -s ../../blobs/merges "$snapshot/merges.txt"
+          ln -s ../../blobs/vocab "$snapshot/vocab.json"
+          : > "$locks/ephemeral.lock"
+          printf '{}' > "$cache/trees/$TOKENIZER_REVISION.json"
+          python scripts/create_stickman_model_manifest.py \
+            --model-dir "$model" \
+            --revision bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \
+            --tokenizer-revision "$TOKENIZER_REVISION"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('/tmp/vibevoice-manifest-model/.stickman-model.json').read_text())
+          assert data['schema_version'] == 1
+          assert data['revision'] == 'b' * 40
+          assert data['tokenizer']['repository'] == 'Qwen/Qwen2.5-1.5B'
+          assert data['tokenizer']['revision'] == 'c' * 40
+          paths = {item['path'] for item in data['artifacts']}
+          expected_tokenizer_paths = {
+              '.hf-cache/hub/models--Qwen--Qwen2.5-1.5B/refs/main',
+              '.hf-cache/hub/models--Qwen--Qwen2.5-1.5B/snapshots/' + 'c' * 40 + '/tokenizer.json',
+              '.hf-cache/hub/models--Qwen--Qwen2.5-1.5B/snapshots/' + 'c' * 40 + '/tokenizer_config.json',
+              '.hf-cache/hub/models--Qwen--Qwen2.5-1.5B/snapshots/' + 'c' * 40 + '/merges.txt',
+              '.hf-cache/hub/models--Qwen--Qwen2.5-1.5B/snapshots/' + 'c' * 40 + '/vocab.json',
+          }
+          tokenizer_paths = {path for path in paths if path.startswith('.hf-cache/')}
+          assert tokenizer_paths == expected_tokenizer_paths
+          assert 'config.json' in paths
+          assert 'model.safetensors' in paths
+          assert len(paths) == 7
+          assert not any('.locks/' in path or '/blobs/' in path or '/trees/' in path for path in paths)
+          assert all(len(item['sha256']) == 64 for item in data['artifacts'])
+          PY
+
+      - name: Verify offline tokenizer runtime guard
+        env:
+          VIBEVOICE_MODEL_PATH: /tmp/vibevoice-manifest-model
+          HF_HOME: /tmp/vibevoice-manifest-model/.hf-cache
+          VIBEVOICE_TOKENIZER_REPOSITORY: Qwen/Qwen2.5-1.5B
+          VIBEVOICE_TOKENIZER_REVISION: cccccccccccccccccccccccccccccccccccccccc
+        run: bash scripts/verify_stickman_runtime.sh --check-only
 
       - name: Run contract tests
         run: python -m pytest -q tests/test_stickman_service.py

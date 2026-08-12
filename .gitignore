@@ -34,8 +34,7 @@ wheels/
 MANIFEST
 
 # PyInstaller
-#  Usually these files are written by a python script from a template
-#  before PyInstaller builds the exe, so as to inject date/other infos into it.
+#  Usually these files are written by a python script from a template, so as to inject data.
 *.manifest
 *.spec
 
@@ -102,6 +101,8 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+.hf-bootstrap/
+.env.stickman
 
 # Spyder project settings
 .spyderproject
@@ -128,9 +129,6 @@ dmypy.json
 # Pycharm
 .idea
 
-# TF code
-tensorflow_code
-
 # Models
 proc_data
 
@@ -153,7 +151,7 @@ debug.env
 # vim
 .*.swp
 
-#ctags
+# ctags
 tags
 
 # pre-commit
