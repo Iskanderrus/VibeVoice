@@ -4,14 +4,20 @@ services:
       context: .
       dockerfile: Dockerfile.stickman
       args:
-        VIBEVOICE_SOURCE_REVISION: ${VIBEVOICE_SOURCE_REVISION:?set exact fork commit SHA}
-        VIBEVOICE_MODEL_REVISION: ${VIBEVOICE_MODEL_REVISION:?set exact model revision}
+        # Zero values are only Compose parse-time fallbacks for `up --no-build`.
+        # Dockerfile.stickman rejects them during any actual build; the governed
+        # build helper supplies the verified owned-fork HEAD plus exact model/tokenizer SHAs.
+        VIBEVOICE_SOURCE_REVISION: ${VIBEVOICE_SOURCE_REVISION:-0000000000000000000000000000000000000000}
+        VIBEVOICE_MODEL_REVISION: ${VIBEVOICE_MODEL_REVISION:-0000000000000000000000000000000000000000}
         VIBEVOICE_MODEL_REPOSITORY: vibevoice/VibeVoice-1.5B
+        VIBEVOICE_TOKENIZER_REVISION: ${VIBEVOICE_TOKENIZER_REVISION:-0000000000000000000000000000000000000000}
+        VIBEVOICE_TOKENIZER_REPOSITORY: Qwen/Qwen2.5-1.5B
     environment:
       VIBEVOICE_SOURCE_REPOSITORY: Iskanderrus/VibeVoice
-      VIBEVOICE_SOURCE_REVISION: ${VIBEVOICE_SOURCE_REVISION}
       VIBEVOICE_MODEL_REPOSITORY: vibevoice/VibeVoice-1.5B
-      VIBEVOICE_MODEL_REVISION: ${VIBEVOICE_MODEL_REVISION}
+      VIBEVOICE_TOKENIZER_REPOSITORY: Qwen/Qwen2.5-1.5B
+      # Source/model/tokenizer revisions intentionally come from image ENV baked
+      # by Dockerfile.stickman; Compose must not override them at runtime.
       VIBEVOICE_MODEL_PATH: /models/VibeVoice-1.5B
       VIBEVOICE_MODEL_MANIFEST: /models/VibeVoice-1.5B/.stickman-model.json
       VIBEVOICE_REQUIRE_MODEL_MANIFEST: "true"
@@ -23,6 +29,9 @@ services:
       VIBEVOICE_CPU_MAX_MEMORY_GB: ${VIBEVOICE_CPU_MAX_MEMORY_GB:-24}
       VIBEVOICE_IDLE_UNLOAD_SECONDS: ${VIBEVOICE_IDLE_UNLOAD_SECONDS:-300}
       VIBEVOICE_GENERATION_TIMEOUT_SECONDS: ${VIBEVOICE_GENERATION_TIMEOUT_SECONDS:-1800}
+      VIBEVOICE_CLEANUP_TIMEOUT_SECONDS: ${VIBEVOICE_CLEANUP_TIMEOUT_SECONDS:-30}
+      VIBEVOICE_REFERENCE_MAX_BYTES: ${VIBEVOICE_REFERENCE_MAX_BYTES:-52428800}
+      VIBEVOICE_REFERENCE_MAX_SECONDS: ${VIBEVOICE_REFERENCE_MAX_SECONDS:-120}
       VIBEVOICE_MAX_CONCURRENT_JOBS: "1"
     ports:
       - "127.0.0.1:8765:8765"
@@ -32,13 +41,16 @@ services:
       - ${VIBEVOICE_OUTPUT_HOST_DIR:?set absolute output directory}:/shared/output:rw
       - vibevoice-offload:/offload
     gpus: all
+    init: true
     read_only: true
     tmpfs:
-      - /tmp:size=1g
+      - /tmp:size=1g,mode=1777
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges:true
+    pids_limit: 512
+    stop_grace_period: 45s
     restart: "no"
 
 volumes:

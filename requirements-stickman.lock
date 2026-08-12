@@ -1,5 +1,9 @@
-# Direct dependency lock for the isolated service image. The accepted image digest
-# is the deployable artifact after the target-machine smoke test.
+# Direct runtime dependency lock for the isolated service image. Test-only
+# dependencies are installed by CI and are intentionally excluded from production.
+# Demo/WebRTC dependencies (gradio, aiortc, av) are intentionally excluded: the
+# Stickman service loads the inference model and processor directly and does not
+# expose the upstream demo/UI/WebRTC surfaces.
+# The accepted image digest becomes the deployable artifact after target-machine smoke.
 accelerate==1.6.0
 transformers==4.51.3
 datasets==3.5.0
@@ -13,11 +17,6 @@ scipy==1.15.2
 librosa==0.11.0
 ml-collections==1.1.0
 absl-py==2.2.2
-gradio==5.50.0
-av==14.3.0
-aiortc==1.13.0
 fastapi==0.116.1
 uvicorn[standard]==0.35.0
 pydantic==2.11.7
-httpx==0.28.1
-pytest==8.4.1

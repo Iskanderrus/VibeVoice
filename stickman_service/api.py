@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -62,6 +63,7 @@ def create_app(
         version="1.0.0",
         docs_url=None,
         redoc_url=None,
+        openapi_url=None,
         lifespan=lifespan,
     )
 
@@ -129,33 +131,54 @@ def create_app(
     async def synthesize(
         body: DialogueRequest, request: Request
     ) -> DialogueResult:
-        task = asyncio.create_task(asyncio.to_thread(manager.synthesize, body))
+        request_cancel = threading.Event()
+        task = asyncio.create_task(
+            asyncio.to_thread(
+                manager.synthesize,
+                body,
+                external_cancel_event=request_cancel,
+                timeout_seconds=settings.generation_timeout_seconds,
+            )
+        )
         deadline = asyncio.get_running_loop().time() + settings.generation_timeout_seconds
         try:
             while not task.done():
                 if await request.is_disconnected():
+                    request_cancel.set()
                     manager.cancel(body.job_id)
                     try:
                         await asyncio.wait_for(
                             asyncio.shield(task),
                             timeout=settings.cleanup_timeout_seconds,
                         )
-                    except (asyncio.TimeoutError, GenerationCancelledError, ServiceError):
+                    except (
+                        asyncio.TimeoutError,
+                        GenerationCancelledError,
+                        GenerationTimeoutError,
+                        ServiceError,
+                    ):
                         pass
                     raise GenerationCancelledError("client disconnected")
                 if asyncio.get_running_loop().time() >= deadline:
+                    request_cancel.set()
                     manager.cancel(body.job_id)
                     try:
                         await asyncio.wait_for(
                             asyncio.shield(task),
                             timeout=settings.cleanup_timeout_seconds,
                         )
-                    except (asyncio.TimeoutError, GenerationCancelledError, ServiceError):
+                    except (
+                        asyncio.TimeoutError,
+                        GenerationCancelledError,
+                        GenerationTimeoutError,
+                        ServiceError,
+                    ):
                         pass
                     raise GenerationTimeoutError("generation exceeded service timeout")
                 await asyncio.sleep(0.1)
             return await task
         except asyncio.CancelledError:
+            request_cancel.set()
             manager.cancel(body.job_id)
             raise
 

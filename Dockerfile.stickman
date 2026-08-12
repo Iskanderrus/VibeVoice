@@ -4,19 +4,31 @@ FROM ${BASE_IMAGE}
 ARG VIBEVOICE_SOURCE_REVISION
 ARG VIBEVOICE_MODEL_REVISION
 ARG VIBEVOICE_MODEL_REPOSITORY=vibevoice/VibeVoice-1.5B
+ARG VIBEVOICE_TOKENIZER_REVISION
+ARG VIBEVOICE_TOKENIZER_REPOSITORY=Qwen/Qwen2.5-1.5B
+
+LABEL org.opencontainers.image.source="https://github.com/Iskanderrus/VibeVoice" \
+      org.opencontainers.image.revision="${VIBEVOICE_SOURCE_REVISION}" \
+      io.stickman.vibevoice.model.repository="${VIBEVOICE_MODEL_REPOSITORY}" \
+      io.stickman.vibevoice.model.revision="${VIBEVOICE_MODEL_REVISION}" \
+      io.stickman.vibevoice.tokenizer.repository="${VIBEVOICE_TOKENIZER_REPOSITORY}" \
+      io.stickman.vibevoice.tokenizer.revision="${VIBEVOICE_TOKENIZER_REVISION}"
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     HOME=/tmp \
     XDG_CACHE_HOME=/tmp/.cache \
-    HF_HOME=/tmp/huggingface \
+    HF_HOME=/models/VibeVoice-1.5B/.hf-cache \
+    HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1 \
     TORCH_HOME=/tmp/torch \
     NUMBA_CACHE_DIR=/tmp/numba \
     VIBEVOICE_SOURCE_REPOSITORY=Iskanderrus/VibeVoice \
     VIBEVOICE_SOURCE_REVISION=${VIBEVOICE_SOURCE_REVISION} \
-    VIBEVOICE_SOURCE_REVISION_FILE=/opt/vibevoice/.stickman-source-revision \
     VIBEVOICE_MODEL_REPOSITORY=${VIBEVOICE_MODEL_REPOSITORY} \
     VIBEVOICE_MODEL_REVISION=${VIBEVOICE_MODEL_REVISION} \
+    VIBEVOICE_TOKENIZER_REPOSITORY=${VIBEVOICE_TOKENIZER_REPOSITORY} \
+    VIBEVOICE_TOKENIZER_REVISION=${VIBEVOICE_TOKENIZER_REVISION} \
     VIBEVOICE_MODEL_PATH=/models/VibeVoice-1.5B \
     VIBEVOICE_MODEL_MANIFEST=/models/VibeVoice-1.5B/.stickman-model.json \
     VIBEVOICE_REQUIRE_MODEL_MANIFEST=true \
@@ -27,14 +39,26 @@ ENV PYTHONUNBUFFERED=1 \
     VIBEVOICE_REFERENCE_DIR=/shared/references \
     VIBEVOICE_OFFLOAD_DIR=/offload
 
-RUN test -n "${VIBEVOICE_SOURCE_REVISION}" \
- && test -n "${VIBEVOICE_MODEL_REVISION}" \
- && test "${VIBEVOICE_MODEL_REPOSITORY}" = "vibevoice/VibeVoice-1.5B"
+RUN printf '%s' "${VIBEVOICE_SOURCE_REVISION}" | grep -Eq '^[0-9a-fA-F]{40}$' \
+ && test "${VIBEVOICE_SOURCE_REVISION}" != "0000000000000000000000000000000000000000" \
+ && printf '%s' "${VIBEVOICE_MODEL_REVISION}" | grep -Eq '^[0-9a-fA-F]{40}$' \
+ && test "${VIBEVOICE_MODEL_REVISION}" != "0000000000000000000000000000000000000000" \
+ && printf '%s' "${VIBEVOICE_TOKENIZER_REVISION}" | grep -Eq '^[0-9a-fA-F]{40}$' \
+ && test "${VIBEVOICE_TOKENIZER_REVISION}" != "0000000000000000000000000000000000000000" \
+ && test "${VIBEVOICE_MODEL_REPOSITORY}" = "vibevoice/VibeVoice-1.5B" \
+ && test "${VIBEVOICE_TOKENIZER_REPOSITORY}" = "Qwen/Qwen2.5-1.5B"
 
 WORKDIR /opt/vibevoice
 
 COPY requirements-stickman.lock /tmp/requirements-stickman.lock
-RUN python -m pip install --no-cache-dir -r /tmp/requirements-stickman.lock
+# The upstream PyTorch 2.5.1 runtime image contains ninja==1.11.1.1. Newer pip
+# versions reject that inherited wheel's platform tag during `pip check`. The
+# Stickman inference service does not compile native/JIT extensions, so Ninja is
+# not part of the runtime contract and is removed rather than allowlisting a
+# broken inherited package or weakening dependency validation.
+RUN python -m pip uninstall --yes ninja \
+ && python -m pip install --no-cache-dir -r /tmp/requirements-stickman.lock \
+ && python -m pip check
 
 COPY pyproject.toml README.md LICENSE ./
 COPY vibevoice ./vibevoice
@@ -43,7 +67,8 @@ COPY scripts ./scripts
 COPY STICKMAN_INTEGRATION.md STICKMAN_SERVICE.md ./
 
 RUN printf '%s\n' "${VIBEVOICE_SOURCE_REVISION}" > /opt/vibevoice/.stickman-source-revision \
- && python -m pip install --no-cache-dir --no-deps -e .
+ && python -m pip install --no-cache-dir --no-deps -e . \
+ && python -m compileall -q stickman_service
 
 RUN groupadd --gid 10001 vibevoice \
  && useradd --uid 10001 --gid 10001 --create-home --shell /usr/sbin/nologin vibevoice \
@@ -57,4 +82,4 @@ EXPOSE 8765
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health', timeout=2).read()" || exit 1
 
-CMD ["python", "-m", "stickman_service"]
+CMD ["bash", "/opt/vibevoice/scripts/verify_stickman_runtime.sh"]

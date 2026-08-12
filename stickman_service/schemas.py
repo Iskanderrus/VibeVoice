@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import re
 from enum import Enum
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .hashing import safe_job_id, validate_sha256
+
+_COMMIT_RE = re.compile(r"^[0-9a-fA-F]{40}$")
+_SPEAKER_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
+_NATIVE_SPEAKER_LINE_RE = re.compile(r"(?im)^\s*Speaker\s+\d+\s*:")
+_MAX_DIALOGUE_CHARS = 40_000
 
 
 class StrictModel(BaseModel):
@@ -21,10 +27,39 @@ class LifecycleState(str, Enum):
     FAILED = "failed"
 
 
+def _exact_commit(value: str, field_name: str) -> str:
+    normalized = value.strip().lower()
+    if not _COMMIT_RE.fullmatch(normalized):
+        raise ValueError(f"{field_name} must be an exact 40-character commit SHA")
+    return normalized
+
+
+def _speaker_id(value: str) -> str:
+    if not _SPEAKER_ID_RE.fullmatch(value):
+        raise ValueError(
+            "speaker_id must start with a letter and contain only letters, digits, '_' or '-'"
+        )
+    return value
+
+
 class SpeakerBinding(StrictModel):
     speaker_id: str = Field(min_length=1, max_length=64)
-    reference_path: str = Field(min_length=1)
+    reference_path: str = Field(min_length=1, max_length=4096)
     reference_sha256: str
+
+    @field_validator("speaker_id")
+    @classmethod
+    def _id(cls, value: str) -> str:
+        return _speaker_id(value)
+
+    @field_validator("reference_path")
+    @classmethod
+    def _path(cls, value: str) -> str:
+        if "\x00" in value:
+            raise ValueError("reference_path cannot contain NUL characters")
+        if not value.strip():
+            raise ValueError("reference_path cannot be blank")
+        return value
 
     @field_validator("reference_sha256")
     @classmethod
@@ -39,12 +74,22 @@ class DialogueTurn(StrictModel):
     speaker_id: str = Field(min_length=1, max_length=64)
     text: str = Field(min_length=1, max_length=10_000)
 
+    @field_validator("speaker_id")
+    @classmethod
+    def _id(cls, value: str) -> str:
+        return _speaker_id(value)
+
     @field_validator("text")
     @classmethod
     def _text(cls, value: str) -> str:
-        # Preserve content exactly except for rejecting whitespace-only strings.
         if not value.strip():
             raise ValueError("text cannot be blank")
+        if "\x00" in value:
+            raise ValueError("text cannot contain NUL characters")
+        # Native VibeVoice uses `Speaker N:` as control syntax. A turn may contain
+        # newlines, but it may not smuggle another native speaker declaration.
+        if _NATIVE_SPEAKER_LINE_RE.search(value):
+            raise ValueError("text cannot contain native 'Speaker N:' control lines")
         return value
 
 
@@ -58,6 +103,16 @@ class GenerationSettings(StrictModel):
 class LoadRequest(StrictModel):
     model_revision: str | None = None
     source_revision: str | None = None
+
+    @field_validator("model_revision")
+    @classmethod
+    def _model_revision(cls, value: str | None) -> str | None:
+        return None if value is None else _exact_commit(value, "model_revision")
+
+    @field_validator("source_revision")
+    @classmethod
+    def _source_revision(cls, value: str | None) -> str | None:
+        return None if value is None else _exact_commit(value, "source_revision")
 
 
 class DialogueRequest(StrictModel):
@@ -78,6 +133,16 @@ class DialogueRequest(StrictModel):
         except Exception as exc:
             raise ValueError(str(exc)) from exc
 
+    @field_validator("model_revision")
+    @classmethod
+    def _model_revision(cls, value: str) -> str:
+        return _exact_commit(value, "model_revision")
+
+    @field_validator("source_revision")
+    @classmethod
+    def _source_revision(cls, value: str | None) -> str | None:
+        return None if value is None else _exact_commit(value, "source_revision")
+
     @model_validator(mode="after")
     def _validate_speakers(self) -> "DialogueRequest":
         speaker_ids = [speaker.speaker_id for speaker in self.speakers]
@@ -89,6 +154,11 @@ class DialogueRequest(StrictModel):
         )
         if unknown:
             raise ValueError(f"turns reference unknown speakers: {unknown}")
+        total_chars = sum(len(turn.text) for turn in self.turns)
+        if total_chars > _MAX_DIALOGUE_CHARS:
+            raise ValueError(
+                f"dialogue text exceeds {_MAX_DIALOGUE_CHARS} characters for one bounded synthesis request"
+            )
         return self
 
 
