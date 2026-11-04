@@ -70,11 +70,11 @@ Set:
 VIBEVOICE_SOURCE_REVISION=<git rev-parse HEAD>
 VIBEVOICE_MODEL_REVISION=<same revision stored in .stickman-model.json>
 VIBEVOICE_MODEL_HOST_DIR=<absolute model directory>
-VIBEVOICE_REFERENCE_HOST_DIR=<absolute approved references directory>
+VIBEVOICE_REFERENCE_HOST_DIR=<absolute local test-or-production reference directory>
 VIBEVOICE_OUTPUT_HOST_DIR=<absolute writable output directory>
 ```
 
-Reference audio is mounted read-only. Each synthesis request must supply the expected SHA-256 for every speaker reference; path escapes and symlink escapes are rejected.
+Reference audio is mounted read-only. Each synthesis request must supply the expected SHA-256 for every speaker reference; path escapes and symlink escapes are rejected. For **private technical smoke**, Local Agent computes hashes from local test WAVs itself. No YTC cast rights-status or publication-approval check is needed to load/test the model. Do not distribute test output or deliberately impersonate an identifiable person without consent. Published channel voice admission is separate.
 
 ## Build and start
 

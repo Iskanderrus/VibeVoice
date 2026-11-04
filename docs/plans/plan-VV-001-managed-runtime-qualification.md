@@ -60,13 +60,16 @@ Exit: code/service contract is qualified independently of heavyweight model exec
 
 ## Phase 3 — target-hardware load/synthesis/unload smoke
 
+**Scope boundary:** This is an internal VibeVoice model/hardware test, not an approval of TSoBW cast voices for publication. Pending RED/BLUE production voice rights/identity evidence must not block load or smoke synthesis and must not trigger a rights-origin questionnaire. Use local operator-authorized test references without deliberate impersonation of non-consenting identifiable individuals. Hash paths/files as an implementation step, keep outputs private, and do not alter the production cast profile. Local Agent owns routine worktree/build/device/FP16 and test fixes autonomously. Production distribution remains a separate decision.
+
+
 On the target machine using the approved constrained-GPU/offload profile:
 
 1. start the isolated service;
 2. verify `/health`, `/ready`, `/capabilities` identities;
 3. load the exact model;
 4. record load duration and observed resource state;
-5. synthesize a representative 30–60 second two-speaker RED/BLUE exchange with approved references;
+5. synthesize a representative 30–60 second **private technical** two-speaker exchange using available local test WAV references; compute their SHA-256 automatically and do not require channel cast/publication approval;
 6. verify valid non-empty 24 kHz WAV and output hash;
 7. record synthesis wall time/RTF and observed resource metrics;
 8. unload;

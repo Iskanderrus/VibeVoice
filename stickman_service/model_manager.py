@@ -95,10 +95,51 @@ class VibeVoiceRuntime:
             return "mps"
         return "cpu"
 
+    @staticmethod
+    def _cuda_has_native_bf16(torch: Any) -> bool:
+        """Turing GPUs must not use emulated BF16 in the automatic CUDA path."""
+        try:
+            major, _minor = torch.cuda.get_device_capability()
+        except Exception:
+            return False
+        if major < 8:
+            return False
+
+        check = getattr(torch.cuda, "is_bf16_supported", None)
+        if check is None:
+            return False
+        try:
+            return bool(check(including_emulation=False))
+        except TypeError:
+            try:
+                return bool(check())
+            except Exception:
+                return False
+        except Exception:
+            return False
+
     def _resolve_dtype(self, torch: Any, device: str) -> Any:
         configured = self.settings.dtype
         if configured == "auto":
-            return torch.bfloat16 if device == "cuda" else torch.float32
+            if device == "cuda":
+                return (
+                    torch.bfloat16
+                    if self._cuda_has_native_bf16(torch)
+                    else torch.float16
+                )
+            return torch.float32
+        if device in {"cpu", "mps"} and configured != "float32":
+            raise ModelLoadError(
+                f"{configured} is not an approved dtype for {device}; use float32 or auto"
+            )
+        if (
+            device == "cuda"
+            and configured == "bfloat16"
+            and not self._cuda_has_native_bf16(torch)
+        ):
+            raise ModelLoadError(
+                "bfloat16 requested but CUDA device does not have native BF16 support"
+            )
         return {
             "bfloat16": torch.bfloat16,
             "float16": torch.float16,

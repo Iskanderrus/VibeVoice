@@ -373,3 +373,69 @@ def test_api_contract_and_stable_validation_error(service_env):
     unloaded = client.post("/unload")
     assert unloaded.status_code == 200
     assert unloaded.json()["state"] == "unloaded"
+
+
+
+def test_turing_bf16_emulation_is_not_treated_as_native_support(tmp_path: Path):
+    class FakeCuda:
+        @staticmethod
+        def get_device_capability():
+            return (7, 5)
+
+        @staticmethod
+        def is_bf16_supported(*args, **kwargs):
+            return True
+
+    class FakeTorch:
+        cuda = FakeCuda()
+        bfloat16 = object()
+        float16 = object()
+        float32 = object()
+
+    settings = Settings(
+        source_revision=SOURCE_SHA,
+        model_revision=MODEL_REV,
+        source_revision_file=tmp_path / "missing",
+        require_source_revision_file=False,
+        dtype="auto",
+        idle_unload_seconds=0,
+    )
+    assert VibeVoiceRuntime(settings)._resolve_dtype(FakeTorch, "cuda") is FakeTorch.float16
+
+    explicit_bf16 = Settings(
+        source_revision=SOURCE_SHA,
+        model_revision=MODEL_REV,
+        source_revision_file=tmp_path / "missing",
+        require_source_revision_file=False,
+        dtype="bfloat16",
+        idle_unload_seconds=0,
+    )
+    with pytest.raises(ModelLoadError, match="native BF16"):
+        VibeVoiceRuntime(explicit_bf16)._resolve_dtype(FakeTorch, "cuda")
+
+
+def test_ampere_native_bf16_is_accepted(tmp_path: Path):
+    class FakeCuda:
+        @staticmethod
+        def get_device_capability():
+            return (8, 6)
+
+        @staticmethod
+        def is_bf16_supported(*, including_emulation=True):
+            return not including_emulation
+
+    class FakeTorch:
+        cuda = FakeCuda()
+        bfloat16 = object()
+        float16 = object()
+        float32 = object()
+
+    settings = Settings(
+        source_revision=SOURCE_SHA,
+        model_revision=MODEL_REV,
+        source_revision_file=tmp_path / "missing",
+        require_source_revision_file=False,
+        dtype="auto",
+        idle_unload_seconds=0,
+    )
+    assert VibeVoiceRuntime(settings)._resolve_dtype(FakeTorch, "cuda") is FakeTorch.bfloat16
