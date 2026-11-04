@@ -69,9 +69,11 @@ python scripts/run_stickman_local.py
 It reads the installed 1.5B model's local \`.stickman-model.json\`, discovers
 \`~/.local/share/stickman-vibevoice/references/red.wav\` and \`blue.wav\` (or
 the repository's bundled demo voices), calculates their SHA-256 values,
-records the checked-out exact source commit, and runs **offline**. On a GPU
-with under 8 GiB VRAM, including the GTX 1650 Ti, it automatically chooses
-the working VibeVoice CPU fp32 route rather than the known CUDA OOM route.
+records the checked-out exact source commit, and runs **offline**. On the GTX 1650 Ti (4 GiB), the default is the **tested hybrid route**:
+CUDA speech modules with the language model in CPU fp32. The runner trims
+reference WAVs to eight seconds automatically and uses a separate thermal
+watchdog to pause and resume generation. If that runtime cannot sustain
+safe temperatures, the job must fail rather than keep heating the hardware.
 On larger GPUs it attempts CUDA/offload and retries once on CPU only for
 a CUDA memory allocation failure.
 
