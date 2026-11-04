@@ -27,10 +27,15 @@ jobs:
             "fastapi==0.116.1" \
             "httpx==0.28.1" \
             "pydantic==2.11.7" \
-            "pytest==8.4.1"
+            "pytest==8.4.1" \
+            "soundfile==0.13.1" \
+            "numpy==2.1.2"
 
       - name: Compile service
-        run: python -m compileall -q stickman_service scripts/create_stickman_model_manifest.py scripts/run_stickman_local.py tests/test_run_stickman_local.py
+        run: python -m compileall -q stickman_service scripts/create_stickman_model_manifest.py scripts/run_stickman_local.py scripts/local-hybrid/*.py tests/test_run_stickman_local.py
+
+      - name: Validate hybrid shell syntax
+        run: bash -n scripts/local-hybrid/*.sh
 
       - name: Run contract tests
         run: python -m pytest -q tests/test_stickman_service.py tests/test_run_stickman_local.py
