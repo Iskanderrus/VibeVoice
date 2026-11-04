@@ -31,7 +31,13 @@ cleanup() {
   kill -CONT "$PID" 2>/dev/null || true
   kill "$GUARD" 2>/dev/null || true
 }
-trap cleanup EXIT INT TERM
+on_signal() {
+  kill -CONT "$PID" 2>/dev/null || true
+  kill -TERM "$PID" 2>/dev/null || true
+  exit 143
+}
+trap cleanup EXIT
+trap on_signal INT TERM
 set +e
 wait "$PID"
 RC=$?

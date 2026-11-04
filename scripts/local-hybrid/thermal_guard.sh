@@ -10,7 +10,7 @@ CPU_CRITICAL=90
 STOPPED=0
 while kill -0 "$PID" 2>/dev/null; do
   G="$(nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits 2>/dev/null | head -n1 | tr -cd '0-9' || true)"
-  C="$(sensors 2>/dev/null | awk '/Tctl:|Package id 0:|Core 0:/{gsub(/[^0-9.]/,"",$2); print int($2); exit}' || true)"
+  C="$(sensors 2>/dev/null | awk '/Tctl:|Package id 0:|Core 0:/{for(i=1;i<=NF;i++)if($i~/\+[0-9]+(\.[0-9]+)?/){gsub(/[^0-9.]/,"",$i);print int($i);exit}}' || true)"
   echo "$(date -u +%FT%TZ) gpu=${G:-na} cpu=${C:-na} stopped=$STOPPED" >> "$LOG"
   if [ -z "$C" ] || [ -z "$G" ]; then
     echo "BLOCKED: required CPU/GPU thermal sensor unavailable" >> "$LOG"

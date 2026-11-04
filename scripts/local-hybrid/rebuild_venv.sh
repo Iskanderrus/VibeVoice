@@ -8,8 +8,8 @@ VENV="${1:-$HOME/.local/share/stickman-vibevoice/venv-rebuild}"
 TORCH_VERSION="${TORCH_VERSION:-2.5.1}"
 TORCH_INDEX="${TORCH_INDEX:-https://download.pytorch.org/whl/cu121}"
 PYVER="${PYVER:-3.11}"
-# DEVIATIONS (documented in PR): av==14.3.0 is not on the index; aiortc==1.13.0 pulls av
-# and fails to build, and the service does not import either (WebRTC demo only).
+# Service-only lock excludes unused WebRTC demo dependencies.
+# No manual lock filtering, venv patching or editable source overrides.
 grep -v -E '^(av==14\.3\.0|aiortc==1\.13\.0)$' "$FORK/requirements-stickman.lock" > "$VENV.lock.txt"
 uv venv --python "$PYVER" "$VENV"
 uv pip install --python "$VENV/bin/python" "torch==$TORCH_VERSION" --index-url "$TORCH_INDEX"

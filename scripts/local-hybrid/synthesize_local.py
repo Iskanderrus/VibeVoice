@@ -59,8 +59,9 @@ def main() -> None:
     runtime = VibeVoiceRuntime(settings)
     load_s = runtime.load()
     started = time.monotonic()
-    result = runtime.synthesize(
-        script=script_text(spec["turns"]),
+    try:
+        result = runtime.synthesize(
+            script=script_text(spec["turns"]),
         voice_paths=refs,
         output_path=out_wav,
         seed=int(spec.get("seed", 18427)),
@@ -68,10 +69,11 @@ def main() -> None:
         inference_steps=int(gen.get("inference_steps", 10)),
         disable_prefill=bool(gen.get("disable_prefill", False)),
         max_length_times=float(gen.get("max_length_times", 2.0)),
-        stop_check_fn=lambda: False,
+        stop_check_fn=lambda: time.monotonic() - started > settings.generation_timeout_seconds,
     )
-    device_mode = runtime.device_mode  # read before unload(), which resets it
-    runtime.unload()
+    finally:
+        device_mode = runtime.device_mode  # capture before unload
+        runtime.unload()
     provenance = {
         "job_id": spec["job_id"],
         "wav": str(out_wav),

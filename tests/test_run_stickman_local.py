@@ -16,8 +16,9 @@ spec.loader.exec_module(runner)
 
 
 def test_auto_device_avoids_known_4gib_cuda_oom():
-    assert runner.select_device("auto", 4096) == "cpu"
+    assert runner.select_device("auto", 4096) == "hybrid"
     assert runner.select_device("auto", 8192) == "cuda"
+    assert runner.select_device("auto", 6000) == "hybrid"
     assert runner.select_device("auto", 0) == "cpu"
     assert runner.select_device("cuda", 4096) == "cuda"
 
@@ -77,3 +78,19 @@ def test_run_status_is_written_atomically(tmp_path: Path):
     runner.write_json(path, {"status": "RUNNING"})
     assert json.loads(path.read_text()) == {"status": "RUNNING"}
     assert not path.with_name("run.json.tmp").exists()
+
+
+def test_hybrid_reference_trimming_keeps_originals_unchanged(tmp_path: Path, monkeypatch):
+    sf = pytest.importorskip("soundfile")
+    monkeypatch.setattr(runner, "DATA", tmp_path)
+    import numpy as np
+    sources = {}
+    for name in ("RED", "BLUE"):
+        source = tmp_path / f"{name}.wav"
+        sf.write(str(source), np.zeros(24000 * 10), 24000, subtype="PCM_16")
+        sources[name] = source
+    prepared = runner.prepare_hybrid_references(sources, tmp_path / "short")
+    assert set(prepared) == {"RED", "BLUE"}
+    assert all(sf.info(str(p)).duration == 8.0 for p in prepared.values())
+    assert all(sf.info(str(p)).duration == 10.0 for p in sources.values())
+    assert runner.prepare_hybrid_references(sources, tmp_path / "short") == prepared
