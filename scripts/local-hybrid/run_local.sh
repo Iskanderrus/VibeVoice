@@ -27,7 +27,18 @@ if ! "$HERE/thermal_preflight.sh" "$LOGDIR/thermal.log"; then
   echo "exit=2" >> "$LOGDIR/synthesis.log"
   exit 2
 fi
-"$PY" "$HERE/synthesize_local.py" --dialogue "$DIALOGUE" --out-dir "$OUT" > "$LOGDIR/synthesis.log" 2>&1 &
+# Smooth, non-privileged sustained-load cap: a user-scope cgroup CPU quota (percent of one core).
+# Fail closed: a configured quota that cannot be applied blocks the run instead of starting uncapped.
+LAUNCH=()
+if [ -n "${THERMAL_CPU_QUOTA:-}" ]; then
+  if ! systemd-run --user --scope -q -p "CPUQuota=$THERMAL_CPU_QUOTA" true >/dev/null 2>&1; then
+    echo "BLOCKED: CPU quota $THERMAL_CPU_QUOTA cannot be applied (systemd-run --user unavailable)" >> "$LOGDIR/thermal.log"
+    echo "exit=2" >> "$LOGDIR/synthesis.log"
+    exit 2
+  fi
+  LAUNCH=(systemd-run --user --scope -q -p "CPUQuota=$THERMAL_CPU_QUOTA" --)
+fi
+"${LAUNCH[@]}" "$PY" "$HERE/synthesize_local.py" --dialogue "$DIALOGUE" --out-dir "$OUT" > "$LOGDIR/synthesis.log" 2>&1 &
 PID=$!
 echo "$PID" > "$LOGDIR/synthesis.pid"
 "$HERE/thermal_guard.sh" "$PID" "$LOGDIR/thermal.log" &
