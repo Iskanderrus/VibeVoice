@@ -73,3 +73,4 @@ def build_empty_vibevoice_model(source: str, model_cls: Any, config_cls: Any) ->
 def release(model: Any) -> None:
     del model
     gc.collect()
+

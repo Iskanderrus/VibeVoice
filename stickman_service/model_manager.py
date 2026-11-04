@@ -140,7 +140,14 @@ class VibeVoiceRuntime:
             attn_primary = "flash_attention_2" if device == "cuda" else "sdpa"
             model_kwargs["attn_implementation"] = attn_primary
 
-            if device == "cuda" and self.settings.cpu_offload:
+            if device == "cuda" and self.settings.language_model_device == "cpu":
+                # Hybrid: tokenizers/connectors/prediction head on CUDA, language model
+                # on CPU. No offload hooks, so no per-token weight transfer.
+                # Manual placement, no accelerate hooks: the whole model is loaded on CPU,
+                # then resident modules are moved to CUDA explicitly (_place_hybrid_modules).
+                model_kwargs["device_map"] = "cpu"
+                self.device_mode = "cuda_tokenizers_cpu_language_model"
+            elif device == "cuda" and self.settings.cpu_offload:
                 self.settings.offload_dir.mkdir(parents=True, exist_ok=True)
                 from vibevoice.modular.configuration_vibevoice import VibeVoiceConfig
 
@@ -214,6 +221,8 @@ class VibeVoiceRuntime:
                 self.model.to("mps")
 
             self.model.eval()
+            if self.device_mode == "cuda_tokenizers_cpu_language_model":
+                self._place_hybrid_modules()
             self.model.set_ddpm_inference_steps(
                 num_steps=self.settings.default_inference_steps
             )
@@ -226,6 +235,26 @@ class VibeVoiceRuntime:
             raise
         except Exception as exc:
             raise classify_runtime_exception(exc, phase="load") from exc
+
+    def _place_hybrid_modules(self) -> None:
+        """Language model (fp32) on CPU; tokenizers, connectors, head and speech scalars on CUDA.
+
+        Explicit placement replaces accelerate hooks. The model code already moves
+        tensors to each submodule's device at the boundaries (see inference model).
+        """
+        inner = self.model.model
+        inner.language_model.float()
+        self.model.lm_head.float()
+        for name in (
+            "acoustic_tokenizer",
+            "semantic_tokenizer",
+            "acoustic_connector",
+            "semantic_connector",
+            "prediction_head",
+        ):
+            getattr(inner, name).to("cuda")
+        for name in ("speech_scaling_factor", "speech_bias_factor"):
+            inner._buffers[name] = inner._buffers[name].to("cuda")
 
     def synthesize(
         self,

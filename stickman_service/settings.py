@@ -59,6 +59,9 @@ class Settings:
     # GPU share reserved for resident modules (tokenizers, connectors, prediction
     # head ~2.4 GiB fp16). The language model is offloaded within the remainder.
     gpu_resident_reserve_mib: int = 2400
+    # "auto": language model offloaded inside the CUDA budget.
+    # "cpu": hybrid mode, language model on CPU; resident modules stay on CUDA.
+    language_model_device: str = "auto"
     cpu_max_memory_gb: int = 24
     offload_dir: Path = Path("/offload")
 
@@ -120,6 +123,7 @@ class Settings:
             gpu_resident_reserve_mib=_env_int(
                 "VIBEVOICE_GPU_RESIDENT_RESERVE_MIB", 2400
             ),
+            language_model_device=os.getenv("VIBEVOICE_LANGUAGE_MODEL_DEVICE", "auto"),
             cpu_max_memory_gb=_env_int("VIBEVOICE_CPU_MAX_MEMORY_GB", 24),
             offload_dir=Path(os.getenv("VIBEVOICE_OFFLOAD_DIR", "/offload")),
             idle_unload_seconds=_env_int("VIBEVOICE_IDLE_UNLOAD_SECONDS", 300),
@@ -163,6 +167,8 @@ class Settings:
             raise SourcePolicyError(
                 "VIBEVOICE_TOKENIZER_REVISION must be an exact 40-character commit SHA"
             )
+        if self.language_model_device not in {"auto", "cpu"}:
+            raise SourcePolicyError("VIBEVOICE_LANGUAGE_MODEL_DEVICE must be auto or cpu")
         if self.gpu_resident_reserve_mib < 0:
             raise SourcePolicyError(
                 "VIBEVOICE_GPU_RESIDENT_RESERVE_MIB must be non-negative"

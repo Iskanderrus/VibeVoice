@@ -118,3 +118,13 @@ def test_tokenizer_revision_can_be_overridden_and_must_be_a_commit(monkeypatch) 
     bad = Settings(tokenizer_revision="main")
     with pytest.raises(SourcePolicyError):
         bad.validate_static_policy()
+
+
+
+def test_language_model_device_setting_is_validated(monkeypatch) -> None:
+    from stickman_service.errors import SourcePolicyError
+
+    monkeypatch.setenv("VIBEVOICE_LANGUAGE_MODEL_DEVICE", "cpu")
+    assert Settings.from_env().language_model_device == "cpu"
+    with pytest.raises(SourcePolicyError):
+        Settings(language_model_device="gpu").validate_static_policy()
