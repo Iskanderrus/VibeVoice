@@ -9,6 +9,11 @@ from .errors import RevisionMismatchError, SourcePolicyError
 
 OWNED_SOURCE_REPOSITORY = "Iskanderrus/VibeVoice"
 ALLOWED_MODEL_REPOSITORY = "vibevoice/VibeVoice-1.5B"
+ALLOWED_TOKENIZER_REPOSITORY = "Qwen/Qwen2.5-1.5B"
+# Revision of the Qwen tokenizer bundled in the verified 1.5B model cache
+# (.stickman-model.json "tokenizer" block). Required for offline loading: without
+# it transformers resolves the moving `main` ref, which is absent offline.
+DEFAULT_TOKENIZER_REVISION = "8faed761d45a263340a0528343f099c05c9a4323"
 _COMMIT_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 
 
@@ -39,6 +44,8 @@ class Settings:
     model_path: Path = Path("/models/VibeVoice-1.5B")
     model_repository: str = ALLOWED_MODEL_REPOSITORY
     model_revision: str = ""
+    tokenizer_repository: str = ALLOWED_TOKENIZER_REPOSITORY
+    tokenizer_revision: str = DEFAULT_TOKENIZER_REVISION
     source_repository: str = OWNED_SOURCE_REPOSITORY
     source_revision: str = ""
     source_revision_file: Path = Path("/opt/vibevoice/.stickman-source-revision")
@@ -49,6 +56,9 @@ class Settings:
     dtype: str = "auto"
     cpu_offload: bool = True
     cuda_max_memory_mb: int = 3400
+    # GPU share reserved for resident modules (tokenizers, connectors, prediction
+    # head ~2.4 GiB fp16). The language model is offloaded within the remainder.
+    gpu_resident_reserve_mib: int = 2400
     cpu_max_memory_gb: int = 24
     offload_dir: Path = Path("/offload")
 
@@ -78,6 +88,12 @@ class Settings:
                 "VIBEVOICE_MODEL_REPOSITORY", ALLOWED_MODEL_REPOSITORY
             ),
             model_revision=os.getenv("VIBEVOICE_MODEL_REVISION", ""),
+            tokenizer_repository=os.getenv(
+                "VIBEVOICE_TOKENIZER_REPOSITORY", ALLOWED_TOKENIZER_REPOSITORY
+            ),
+            tokenizer_revision=os.getenv(
+                "VIBEVOICE_TOKENIZER_REVISION", DEFAULT_TOKENIZER_REVISION
+            ),
             source_repository=os.getenv(
                 "VIBEVOICE_SOURCE_REPOSITORY", OWNED_SOURCE_REPOSITORY
             ),
@@ -101,6 +117,9 @@ class Settings:
             dtype=os.getenv("VIBEVOICE_DTYPE", "auto"),
             cpu_offload=_env_bool("VIBEVOICE_CPU_OFFLOAD", True),
             cuda_max_memory_mb=_env_int("VIBEVOICE_CUDA_MAX_MEMORY_MB", 3400),
+            gpu_resident_reserve_mib=_env_int(
+                "VIBEVOICE_GPU_RESIDENT_RESERVE_MIB", 2400
+            ),
             cpu_max_memory_gb=_env_int("VIBEVOICE_CPU_MAX_MEMORY_GB", 24),
             offload_dir=Path(os.getenv("VIBEVOICE_OFFLOAD_DIR", "/offload")),
             idle_unload_seconds=_env_int("VIBEVOICE_IDLE_UNLOAD_SECONDS", 300),
@@ -135,6 +154,18 @@ class Settings:
         if self.model_repository != ALLOWED_MODEL_REPOSITORY:
             raise SourcePolicyError(
                 f"only model repository {ALLOWED_MODEL_REPOSITORY!r} is approved"
+            )
+        if self.tokenizer_repository != ALLOWED_TOKENIZER_REPOSITORY:
+            raise SourcePolicyError(
+                f"only tokenizer repository {ALLOWED_TOKENIZER_REPOSITORY!r} is approved"
+            )
+        if not _COMMIT_RE.fullmatch(self.tokenizer_revision or ""):
+            raise SourcePolicyError(
+                "VIBEVOICE_TOKENIZER_REVISION must be an exact 40-character commit SHA"
+            )
+        if self.gpu_resident_reserve_mib < 0:
+            raise SourcePolicyError(
+                "VIBEVOICE_GPU_RESIDENT_RESERVE_MIB must be non-negative"
             )
         if self.max_concurrent_jobs != 1:
             raise SourcePolicyError("VIBEVOICE_MAX_CONCURRENT_JOBS must be exactly 1")

@@ -129,6 +129,9 @@ class VibeVoiceRuntime:
             using_local_path = self.settings.model_path.exists()
             if self.settings.local_files_only:
                 processor_kwargs["local_files_only"] = True
+                # The Qwen tokenizer must be pinned explicitly offline; otherwise
+                # transformers resolves `main`, which the governed cache lacks.
+                processor_kwargs["revision"] = self.settings.tokenizer_revision
                 model_kwargs["local_files_only"] = True
             elif not using_local_path:
                 processor_kwargs["revision"] = self.settings.model_revision
@@ -139,13 +142,41 @@ class VibeVoiceRuntime:
 
             if device == "cuda" and self.settings.cpu_offload:
                 self.settings.offload_dir.mkdir(parents=True, exist_ok=True)
+                from vibevoice.modular.configuration_vibevoice import VibeVoiceConfig
+
+                from .offload import (
+                    build_empty_vibevoice_model,
+                    build_offload_device_map,
+                    release,
+                )
+
+                gpu_budget_mib = (
+                    self.settings.cuda_max_memory_mb
+                    - self.settings.gpu_resident_reserve_mib
+                )
+                if gpu_budget_mib < 0:
+                    raise ModelLoadError(
+                        "VIBEVOICE_CUDA_MAX_MEMORY_MB is smaller than "
+                        "VIBEVOICE_GPU_RESIDENT_RESERVE_MIB"
+                    )
+                empty = build_empty_vibevoice_model(
+                    source, VibeVoiceForConditionalGenerationInference, VibeVoiceConfig
+                )
+                device_map = build_offload_device_map(
+                    empty,
+                    gpu_budget_mib=gpu_budget_mib,
+                    cpu_gib=self.settings.cpu_max_memory_gb,
+                    no_split_module_classes=getattr(
+                        VibeVoiceForConditionalGenerationInference,
+                        "_no_split_modules",
+                        None,
+                    )
+                    or (),
+                )
+                release(empty)
                 model_kwargs.update(
                     {
-                        "device_map": "auto",
-                        "max_memory": {
-                            0: f"{self.settings.cuda_max_memory_mb}MiB",
-                            "cpu": f"{self.settings.cpu_max_memory_gb}GiB",
-                        },
+                        "device_map": device_map,
                         "offload_folder": str(self.settings.offload_dir),
                         "offload_state_dict": True,
                     }
