@@ -13,8 +13,17 @@ GPU_RESUME=${THERMAL_GPU_RESUME_C:-65}
 CPU_RESUME=${THERMAL_CPU_RESUME_C:-70}
 PAUSE_MAX=${THERMAL_PAUSE_MAX_SECONDS:-240}
 CPU_CRITICAL=90
+SMOOTH_SAMPLES=${THERMAL_SMOOTH_SAMPLES:-5}
 STOPPED=0
 PAUSED_AT=0
+CPU_HISTORY=()
+
+# Pause/resume decisions use the median of recent CPU samples, so one short burst
+# (the die sensor reacts within a fraction of a second) cannot flip the state.
+# The raw reading is still used for the critical stop.
+median_cpu() {
+  printf '%s\n' "${CPU_HISTORY[@]}" | sort -n | awk '{a[NR]=$1} END{print a[int((NR+1)/2)]}'
+}
 
 tree_pids() {  # root first, then every descendant
   local pid=$1 child
@@ -33,12 +42,18 @@ stop_worker() {  # resume first so the workers can receive TERM, then terminate 
 while kill -0 "$PID" 2>/dev/null; do
   G="$(read_gpu_c)"
   C="$(read_cpu_c)"
-  echo "$(date -u +%FT%TZ) gpu=${G:-na} cpu=${C:-na} stopped=$STOPPED" >> "$LOG"
   if [ -z "$C" ] || [ -z "$G" ]; then
+    echo "$(date -u +%FT%TZ) gpu=${G:-na} cpu=${C:-na} stopped=$STOPPED" >> "$LOG"
     echo "BLOCKED: required CPU/GPU thermal sensor unavailable" >> "$LOG"
     stop_worker
     exit 2
   fi
+  CPU_HISTORY+=("$C")
+  if [ "${#CPU_HISTORY[@]}" -gt "$SMOOTH_SAMPLES" ]; then
+    CPU_HISTORY=("${CPU_HISTORY[@]:1}")
+  fi
+  CS="$(median_cpu)"
+  echo "$(date -u +%FT%TZ) gpu=$G cpu=$C cpu_med=$CS stopped=$STOPPED" >> "$LOG"
   if [ "$C" -ge "$CPU_CRITICAL" ]; then
     echo "CRITICAL_THERMAL_STOP cpu=$C" >> "$LOG"
     stop_worker
@@ -46,16 +61,16 @@ while kill -0 "$PID" 2>/dev/null; do
   fi
   NOW=$(date +%s)
   if [ "$STOPPED" = 1 ] && [ $((NOW - PAUSED_AT)) -ge "$PAUSE_MAX" ]; then
-    echo "THERMAL_PAUSE_TIMEOUT cpu=$C gpu=$G paused_seconds=$((NOW - PAUSED_AT)) limit=$PAUSE_MAX" >> "$LOG"
+    echo "THERMAL_PAUSE_TIMEOUT cpu=$C cpu_med=$CS gpu=$G paused_seconds=$((NOW - PAUSED_AT)) limit=$PAUSE_MAX" >> "$LOG"
     stop_worker
     exit 4
   fi
-  if [ "$STOPPED" = 0 ] && { [ "$G" -ge "$GPU_PAUSE" ] || [ "$C" -ge "$CPU_PAUSE" ]; }; then
+  if [ "$STOPPED" = 0 ] && { [ "$G" -ge "$GPU_PAUSE" ] || [ "$CS" -ge "$CPU_PAUSE" ]; }; then
     signal_tree STOP "$PID"
     STOPPED=1
     PAUSED_AT=$NOW
     echo "PAUSE" >> "$LOG"
-  elif [ "$STOPPED" = 1 ] && [ "$G" -le "$GPU_RESUME" ] && [ "$C" -le "$CPU_RESUME" ]; then
+  elif [ "$STOPPED" = 1 ] && [ "$G" -le "$GPU_RESUME" ] && [ "$CS" -le "$CPU_RESUME" ]; then
     signal_tree CONT "$PID"
     STOPPED=0
     echo "RESUME" >> "$LOG"

@@ -72,6 +72,40 @@ def test_guard_pauses_hot_worker_then_resumes_after_cooling(tmp_path: Path):
     assert text.index("PAUSE") < text.index("RESUME") < text.index("process exited")
 
 
+def test_single_cpu_burst_does_not_pause_worker(tmp_path: Path):
+    bin_dir = make_sensor_stubs(tmp_path / "bin", cpu_seq=[60, 60, 85, 60, 60], gpu=60)
+    log = tmp_path / "thermal.log"
+    worker = subprocess.Popen(["sleep", "2"])
+    guard = subprocess.Popen(
+        ["bash", str(SCRIPTS / "thermal_guard.sh"), str(worker.pid), str(log)],
+        env=stub_env(bin_dir), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        worker.wait(timeout=30)
+        _, stderr = guard.communicate(timeout=30)
+    finally:
+        for proc in (worker, guard):
+            if proc.poll() is None:
+                proc.kill()
+    assert guard.returncode == 0, stderr
+    text = log.read_text(encoding="utf-8")
+    assert "PAUSE" not in text and "cpu_med=" in text
+
+
+def test_critical_temperature_stops_immediately_without_smoothing(tmp_path: Path):
+    bin_dir = make_sensor_stubs(tmp_path / "bin", cpu_seq=[60, 60, 95], gpu=60)
+    log = tmp_path / "thermal.log"
+    worker = subprocess.Popen(["sleep", "60"])
+    try:
+        result = run_guard(bin_dir, worker.pid, log, timeout=30)
+        worker.wait(timeout=10)
+    finally:
+        if worker.poll() is None:
+            worker.kill()
+    assert result.returncode == 3, result.stderr
+    assert "CRITICAL_THERMAL_STOP cpu=95" in log.read_text(encoding="utf-8")
+
+
 def test_guard_terminates_whole_tree_with_reason_when_cooling_never_happens(tmp_path: Path):
     bin_dir = make_sensor_stubs(tmp_path / "bin", cpu_seq=[85], gpu=60)
     log = tmp_path / "thermal.log"
