@@ -100,6 +100,8 @@ def gpu_vram_mib() -> int:
 def select_device(requested: str, vram_mib: int) -> str:
     if requested != "auto":
         return requested
+    if 3500 <= vram_mib < MIN_GPU_MIB:
+        return "hybrid"
     return "cuda" if vram_mib >= MIN_GPU_MIB else "cpu"
 
 
@@ -187,7 +189,105 @@ def job_config(args) -> dict:
     }
 
 
+
+def prepare_hybrid_references(refs: dict, directory: Path) -> dict:
+    """Trim temporary test voice samples automatically; never touch originals."""
+    import soundfile as sf
+
+    directory.mkdir(parents=True, exist_ok=True)
+    prepared = {}
+    for speaker, source in refs.items():
+        source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+        target = directory / f"{speaker.lower()}.wav"
+        stamp = directory / f"{speaker.lower()}.source-sha256"
+        if not (target.is_file() and stamp.is_file()
+                and stamp.read_text().strip() == source_hash):
+            audio, sample_rate = sf.read(str(source))
+            if sample_rate <= 0:
+                raise ValueError("Reference WAV has invalid sample rate")
+            frames = audio[: int(sample_rate * 8)]
+            if len(frames) == 0:
+                raise ValueError(f"Empty voice sample: {source}")
+            temp = directory / f".{speaker.lower()}.tmp.wav"
+            sf.write(str(temp), frames, sample_rate, subtype="PCM_16")
+            os.replace(temp, target)
+            stamp.write_text(source_hash + "\n", encoding="utf-8")
+        prepared[speaker] = target.resolve()
+    return prepared
+
+
+def run_hybrid(job_id: str, config: dict, output: Path) -> dict:
+    """Use the on-device 4 GiB hybrid executor and its external thermal guard."""
+    prepared = prepare_hybrid_references(
+        config["references"], DATA / "references-8s"
+    )
+    runs = DATA / "runs" / job_id
+    runs.mkdir(parents=True, exist_ok=True)
+    spec_path = runs / "dialogue.json"
+    from stickman_service.hashing import sha256_file
+
+    spec = {
+        "job_id": job_id,
+        "seed": 18427,
+        "speakers": [
+            {"speaker_id": key, "reference_path": str(path),
+             "reference_sha256": sha256_file(path)}
+            for key, path in prepared.items()
+        ],
+        "turns": [
+            {"speaker_id": key, "text": phrase}
+            for key, phrase in config["turns"]
+        ],
+        "generation": {
+            "cfg_scale": 1.3,
+            "inference_steps": 10,
+            "disable_prefill": False,
+            "max_length_times": 2.0,
+        },
+    }
+    write_json(spec_path, spec)
+    command = [
+        "bash", str(REPO / "scripts/local-hybrid/run_local.sh"),
+        str(spec_path), str(output),
+        str(REPO / "scripts/local-hybrid/profile-gtx1650ti-hybrid.env"),
+        str(runs),
+    ]
+    result = subprocess.run(command, cwd=REPO, check=False)
+    if result.returncode != 0:
+        thermal_log = runs / "thermal.log"
+        tail = (thermal_log.read_text(encoding="utf-8")[-1000:]
+                if thermal_log.is_file() else "no thermal log")
+        raise RuntimeError(
+            f"Hybrid VibeVoice exit={result.returncode}; thermal tail: {tail}"
+        )
+    provenance = output / f"{job_id}.provenance.json"
+    if not provenance.is_file():
+        raise RuntimeError("Hybrid runner exited without provenance JSON")
+    data = json.loads(provenance.read_text(encoding="utf-8"))
+    wav = output / f"{job_id}.wav"
+    if (not wav.is_file() or not data.get("wav_sha256")
+            or data["wav_sha256"] != sha256_file(wav)):
+        raise RuntimeError("Hybrid WAV missing or provenance digest mismatch")
+    return {
+        "job_id": job_id, "status": "completed",
+        "output_path": str(wav),
+        "audio_sha256": data["wav_sha256"],
+        "device_mode": data["device_mode"],
+        "source_revision": config["source_revision"],
+        "model_revision": config["manifest"]["revision"],
+        "speaker_reference_hashes": data.get("references", {}),
+        "timings": {
+            "load_seconds": data.get("load_seconds"),
+            "generation_seconds": data.get("generation_seconds"),
+        },
+        "provenance_path": str(provenance),
+        "thermal_log": str(runs / "thermal.log"),
+    }
+
+
 def execute(job_id: str, config: dict, output: Path) -> dict:
+    if config["device"] == "hybrid":
+        return run_hybrid(job_id, config, output)
     # Prevent editable installs from importing a different local hardening checkout.
     sys.path.insert(0, str(REPO))
     os.environ["HF_HUB_OFFLINE"] = "1"
@@ -309,13 +409,18 @@ def run(args) -> int:
 def main() -> int:
     # Use the existing project venv automatically if this entrypoint was invoked
     # with system Python; no pip install, Docker pull or env-file editing.
-    interpreter = REPO / ".venv" / "bin" / "python"
-    if sys.prefix == sys.base_prefix and interpreter.exists():
-        os.execv(str(interpreter), [str(interpreter), str(Path(__file__)), *sys.argv[1:]])
+    interpreters = [
+        DATA / "venv-rebuild" / "bin" / "python",
+        REPO / ".venv" / "bin" / "python",
+    ]
+    if sys.prefix == sys.base_prefix:
+        for interpreter in interpreters:
+            if interpreter.is_file():
+                os.execv(str(interpreter), [str(interpreter), str(Path(__file__)), *sys.argv[1:]])
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--script", type=Path, help="RED:/BLUE: lines; default short sample")
-    parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
+    parser.add_argument("--device", choices=("auto", "hybrid", "cpu", "cuda"), default="auto")
     parser.add_argument("--model-dir", type=Path, default=None)
     parser.add_argument("--job-id", default=None)
     parser.add_argument("--dry-run", action="store_true")
