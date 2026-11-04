@@ -58,7 +58,45 @@ This writes:
 
 The container rejects missing/mismatched manifests before importing Torch or allocating model memory.
 
-## Configure
+## Default workstation execution — no manual settings
+
+The canonical local entrypoint is:
+
+~~~bash
+python scripts/run_stickman_local.py
+~~~
+
+It reads the installed 1.5B model's local \`.stickman-model.json\`, discovers
+\`~/.local/share/stickman-vibevoice/references/red.wav\` and \`blue.wav\` (or
+the repository's bundled demo voices), calculates their SHA-256 values,
+records the checked-out exact source commit, and runs **offline**. On a GPU
+with under 8 GiB VRAM, including the GTX 1650 Ti, it automatically chooses
+the working VibeVoice CPU fp32 route rather than the known CUDA OOM route.
+On larger GPUs it attempts CUDA/offload and retries once on CPU only for
+a CUDA memory allocation failure.
+
+The command uses the existing \`.venv\` if present; it does **not** install
+packages, download weights, pull Docker images, modify cast approval or
+change branches. It runs detached so the model is not killed by a tool
+session timeout. It writes a run log, exact-reference hashes, WAV and JSON
+status under \`~/.local/share/stickman-vibevoice/\` and prevents concurrent
+local runs. Temperature monitoring is automatic where system sensors are
+exposed; it cancels generation at 88 °C CPU or 80 °C GPU.
+
+~~~bash
+python scripts/run_stickman_local.py --status
+python scripts/run_stickman_local.py --script /path/to/approved-dialogue.txt
+python scripts/run_stickman_local.py --dry-run
+~~~
+
+The file contains lines such as \`RED: text\` and \`BLUE: text\`. No environment
+editing or manually supplied SHA, model revision, device configuration or
+Git branch switch is required for the standard workstation. An unavailable
+model, references, Python dependencies or exposed hardware sensors must be
+reported accurately; the runner cannot manufacture those external resources.
+These private test references are **not** publication-cleared cast identities.
+
+## Optional Docker deployment (not needed for local workstation)
 
 ```bash
 cp .env.stickman.example .env.stickman
@@ -76,7 +114,7 @@ VIBEVOICE_OUTPUT_HOST_DIR=<absolute writable output directory>
 
 Reference audio is mounted read-only. Each synthesis request must supply the expected SHA-256 for every speaker reference; path escapes and symlink escapes are rejected. For **private technical smoke**, Local Agent computes hashes from local test WAVs itself. No YTC cast rights-status or publication-approval check is needed to load/test the model. Do not distribute test output or deliberately impersonate an identifiable person without consent. Published channel voice admission is separate.
 
-## Build and start
+## Build and start optional Docker service
 
 ```bash
 docker compose --env-file .env.stickman \
