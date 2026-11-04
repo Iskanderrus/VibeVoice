@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -94,3 +97,43 @@ def test_hybrid_reference_trimming_keeps_originals_unchanged(tmp_path: Path, mon
     assert all(sf.info(str(p)).duration == 8.0 for p in prepared.values())
     assert all(sf.info(str(p)).duration == 10.0 for p in sources.values())
     assert runner.prepare_hybrid_references(sources, tmp_path / "short") == prepared
+
+
+HYBRID_IMPORT_CHILD = """
+import importlib.util, sys
+from pathlib import Path
+
+spec = importlib.util.spec_from_file_location("run_stickman_local", sys.argv[1])
+runner = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(runner)
+data = Path(sys.argv[2])
+runner.DATA = data
+runner.prepare_hybrid_references = lambda refs, directory: refs
+
+def stop_before_synthesis(*args, **kwargs):
+    raise SystemExit(42)
+
+runner.subprocess.run = stop_before_synthesis
+config = {
+    "references": {"RED": data / "RED.wav", "BLUE": data / "BLUE.wav"},
+    "turns": [("RED", "Hello.")],
+    "source_revision": "0" * 40,
+    "manifest": {"revision": "test-revision"},
+}
+runner.run_hybrid("import-path", config, data / "out")
+"""
+
+
+def test_hybrid_runner_imports_stickman_service_outside_repo_without_pythonpath(
+    tmp_path: Path,
+):
+    for name in ("RED", "BLUE"):
+        (tmp_path / f"{name}.wav").write_bytes(b"fixture")
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    result = subprocess.run(
+        [sys.executable, "-I", "-S", "-c", HYBRID_IMPORT_CHILD, str(SCRIPT), str(tmp_path)],
+        cwd=tmp_path, env=env, capture_output=True, text=True, timeout=120, check=False,
+    )
+    # Exit 42 means run_hybrid got past the stickman_service import to the launch point.
+    assert result.returncode == 42, result.stderr
+    assert "ModuleNotFoundError" not in result.stderr

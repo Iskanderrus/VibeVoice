@@ -224,6 +224,8 @@ def run_hybrid(job_id: str, config: dict, output: Path) -> dict:
     runs = DATA / "runs" / job_id
     runs.mkdir(parents=True, exist_ok=True)
     spec_path = runs / "dialogue.json"
+    if str(REPO) not in sys.path:  # direct script runs put scripts/, not REPO, on sys.path
+        sys.path.insert(0, str(REPO))
     from stickman_service.hashing import sha256_file
 
     spec = {
