@@ -22,6 +22,11 @@ if [ ! -x "$PY" ]; then
   exit 2
 fi
 mkdir -p "$LOGDIR" "$OUT"
+# Gate before model load: never start on a machine that is already too hot.
+if ! "$HERE/thermal_preflight.sh" "$LOGDIR/thermal.log"; then
+  echo "exit=2" >> "$LOGDIR/synthesis.log"
+  exit 2
+fi
 "$PY" "$HERE/synthesize_local.py" --dialogue "$DIALOGUE" --out-dir "$OUT" > "$LOGDIR/synthesis.log" 2>&1 &
 PID=$!
 echo "$PID" > "$LOGDIR/synthesis.pid"
@@ -42,7 +47,7 @@ set +e
 wait "$PID"
 RC=$?
 set -e
-if [ "$RC" -eq 0 ] && grep -qE 'CRITICAL_THERMAL_STOP|BLOCKED:' "$LOGDIR/thermal.log"; then
+if [ "$RC" -eq 0 ] && grep -qE 'CRITICAL_THERMAL_STOP|THERMAL_PAUSE_TIMEOUT|BLOCKED:' "$LOGDIR/thermal.log"; then
   RC=1
 fi
 echo "exit=$RC" >> "$LOGDIR/synthesis.log"
