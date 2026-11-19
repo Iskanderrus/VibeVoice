@@ -115,16 +115,62 @@ The lowered references do move the generated pitch down by about 40 Hz and tend 
 
 Recipe, both files: source take `vv-pod2-scene2-s18428-20261119-202821.wav` (SHA-256 `9aa5283cce15e88e7cc6e1f497ed302612a0f8b6a5bb0bd118480361295bd636`): scene 2 of the original dialogue (`scene2.txt` sha256 prefix `191b36f32bee851d`, 7 turns), RED = `demo/voices/en-Frank_man.wav`, BLUE = `demo/voices/en-Carter_man.wav`, seed 18428, `cfg_scale` 1.6, boost off, 2 threads on cores 0,2, 150% quota, hybrid route, runner with the uncommitted `--voice/--seed/--cfg-scale` change that became `00ff115`. Then `rubberband` pitch ratio 0.91700 (1.5 semitones) or 0.90125 (1.8 semitones) with formants preserved, then single-pass `loudnorm=I=-16:TP=-1.5:LRA=11` (measured result above). The source take has a measured pitch median of 125 Hz and the shifted files about 115 Hz by the rough tracker; the source take has no gap inside any second-speaker line. Loudness is about 1 LUFS under the −16 target because single-pass `loudnorm` was used for these copies.
 
+## 5a. Batch for scenes 1, 3, 4, selection by ear, pitch method and per-seed episodes
+
+**Batch** (`scripts/batch_scenes.py`): 15 takes, scenes 1, 3 and 4 of the original dialogue, seeds 18427–18431, Frank = RED, Carter = BLUE, guidance 1.6, boost off, same guarded limits, no pauses or critical stops. Nothing was rejected; each take was measured and given listening copies. "Gaps" counts gaps ≥ 0.15 s inside a line, by speaker.
+
+| Scene | Seed | Floor | Music share | Pitch median / p90 | Gaps (BLUE / RED) |
+|---|---|---|---|---|---|
+| 1 | 18427 | −67.6 dB | 0.37 | 128 / 166 Hz | 5 / 0 |
+| 1 | 18428 | −85.4 dB | 0.08 | 137 / 190 Hz | 4 / 3 |
+| 1 | 18429 | −77.7 dB | 0.04 | 163 / 229 Hz | 4 / 1 |
+| 1 | 18430 | −55.2 dB | 0.35 | 149 / 214 Hz | 2 / 0 |
+| 1 | 18431 | −44.7 dB | 0.65 | 122 / 169 Hz | 1 / 0 |
+| 3 | 18427 | −93.9 dB | 0.00 | 121 / 150 Hz | 7 / 1 |
+| 3 | 18428 | −77.2 dB | 0.08 | 132 / 175 Hz | 2 / 1 |
+| 3 | 18429 | −79.2 dB | 0.00 | 131 / 207 Hz | 4 / 1 |
+| 3 | 18430 | −70.2 dB | 0.07 | 122 / 210 Hz | 8 / 1 |
+| 3 | 18431 | −93.8 dB | 0.12 | 116 / 175 Hz | 4 / 1 |
+| 4 | 18427 | −83.7 dB | 0.00 | 134 / 175 Hz | 0 / 0 |
+| 4 | 18428 | −94.3 dB | 0.00 | 129 / 167 Hz | 4 / 0 |
+| 4 | 18429 | −71.2 dB | 0.00 | 150 / 190 Hz | 2 / 0 |
+| 4 | 18430 | −82.4 dB | 0.06 | 126 / 182 Hz | 2 / 0 |
+| 4 | 18431 | −70.0 dB | 0.06 | 136 / 168 Hz | 1 / 2 |
+
+Observations:
+- The scene-1 seed 18427 take is identical to the earlier v2 scene-1 take (same floor, music share and pitch): same seed, same audio.
+- Music appears around 4–6 s in all five scene-1 takes, at the point where the second speaker's reply begins, so it looks tied to the text at that position (or to the opening position of the episode), not to the seed. The operator considers music at the start of an episode possibly wanted.
+- Only scene 4 / seed 18427 has no gap inside any line.
+- **Operator selection by ear** (the numbers do not predict it): scene 1 = seed 18430 (floor −55.2 dB, music share 0.35, i.e. poor on the metrics), scene 2 = seed 18428, scene 3 = seed 18429 (four gaps in second-speaker lines, rated excellent), scene 4 = seed 18428 (four gaps, rated very good). The metrics above order what is worth hearing first; they do not decide.
+
+**Pitch-lowering method.** `rubberband` with formants preserved was "metallic" to the operator; on scene 3 / seed 18429 the 1.5 and 1.8 semitone versions were "terrible" and 1.2 semitones "my absolute favourite" (the same shifts had sounded excellent on scene 2, so the tolerable shift depends on the take). Four methods were compared at 1.2 semitones on that take: formant-preserved (default window), formant-preserved with smooth transients and a long window, formants moving with the pitch, and **method C: resample then restore the speed** (`asetrate=24000·r, aresample=24000, atempo=1/r`, `r = 2^(−semitones/12)`, then `loudnorm=I=-16:TP=-1.5:LRA=11`). **Method C was rated "absolute best"**, and scene 2 / seed 18428 with method C at 1.8 semitones "WOW". Method C also moves the formants down slightly; why it avoids the metallic quality was not investigated (the phase-vocoder step is the suspected source of the artifact in the other methods, unmeasured).
+Per-scene shifts chosen with method C: scene 1 seed 18430 at 1.5, scene 2 seed 18428 at 1.8, scene 3 seed 18429 at 1.2, scene 4 seed 18428 at 1.2 (the choices for scenes 1 and 4 were made on other methods and not yet confirmed with method C).
+
+**Episodes, one seed each** (`scripts/assemble_episode.py <seed> <semitones>`): all four scenes of one seed, method C, scene files as the operator heard them (no tempo or pause editing), empty ends trimmed, 15 ms fades, 0.7 s between scenes, final two-pass `loudnorm` to −16 LUFS / −1.5 dBTP. Seed 18430 lacked scene 2 (the earlier scene-2 grid covered seeds 18427–18429), so it was generated separately (guidance 1.6, same voices).
+
+| File (in `~/.local/share/stickman-vibevoice/output/`, `vv-blackswan-podcast-episode-…-methodC.wav`) | Length | SHA-256 |
+|---|---|---|
+| `seed18428-down1.2st` | 101.9 s | `27b574eb9a34451aa3d9d21dbf7ee5fc0fcac82b67d7eb7f67d6e3753d7daa39` |
+| `seed18428-down1.8st` | 101.9 s | `f4e87d9970cb06d5207c2d4823be9f22cab5674b8975b2bebf027793b59755e5` |
+| `seed18429-down1.2st` | 102.8 s | `d6519693d89e017d67904fa37fcacb2901752e71c2a544dbbe7833730a0ca6f7` |
+| `seed18429-down1.5st` | 102.8 s | `8bd8e627034e0154af2307ad76e0aba119506550f9e872c5f160f866b1bb7007` |
+| `seed18429-down1.8st` | 102.8 s | `77bec504c3cc926c95e4abe8b009d9082647d118e2248d8db82226b7e466be22` |
+| `seed18430-down1.5st` | 107.6 s | `62f27c08a26afe9fae3b947e91434410a1566618224cea3547372cff4a0cdc58` |
+
+An earlier episode mixing the four per-scene picks from different seeds (`…episode-selected-methodC.wav`, sha256 `d5d1925041548748c23b5e01ced1522cd672d9e5da18368c971e6a291440a502`, 106.8 s) was **not what the operator wanted** and is superseded. **The operator's only candidates are seed 18429 at 1.8 and seed 18428 at 1.8.**
+
+**Whole-piece comparison** (`scripts/whole_piece.py`): the two candidate seeds generated as ONE take each (all 25 turns) instead of per scene, with the same recipe, to compare against the per-scene episodes. Seed 18428 started at 23:53:10 (expected about 18–30 minutes, no pauses at the time of writing). The operator asked to pause after it and continue the next morning, so the orchestrator was stopped and **seed 18429 has not been started**. Quality results and the method-C 1.8-semitone versions are pending and will be appended.
+
 ## 6. Source and runs on record
 
-- Source for the runs: HEAD `d77b7ffe8b8be75a0fa2170c8647a9494cb68622` for the smoke, narration and v1 podcast runs. The v2 takes and the early v3 take ran with the runner change **uncommitted** (working-tree diff sha256 prefix `a08f0b6f08edb189`) on top of `d77b7ffe`; the commit `00ff115` carries exactly that change, so provenance files written after it show a newer HEAD.
+- Source for the batch, the seed-18430 scene-2 take and the whole-piece take: the committed runner (`00ff115`) at the then-current branch HEAD; provenance files record that HEAD. Source for the earlier runs: HEAD `d77b7ffe8b8be75a0fa2170c8647a9494cb68622` for the smoke, narration and v1 podcast runs. The v2 takes and the early v3 take ran with the runner change **uncommitted** (working-tree diff sha256 prefix `a08f0b6f08edb189`) on top of `d77b7ffe`; the commit `00ff115` carries exactly that change, so provenance files written after it show a newer HEAD.
 - Output files are in `~/.local/share/stickman-vibevoice/output/` with provenance; per-run thermal logs in `…/runs/<job>/thermal.log`. Nothing was merged, and no audio was published or attached to the PR.
 
 ## 7. Not established
 
 - No sustained-load thermal qualification; GPU margin 2 °C; boost-off is a manual non-persistent setting.
 - Audio quality, speaker identity, accents, transcript fidelity and claim accuracy of the dialogue are unverified by tooling (no speech recogniser, no speaker-embedding model); judgements above come from the operator's listening. The automatic checks (music share, floor, pitch band, break detector) do **not** predict the operator's ratings reliably and are heuristics tuned on a handful of takes.
-- Only scene 2 has been explored in depth; the other three scenes have not been selected, and nothing has been assembled into an episode with the chosen settings.
+- All four scenes now have operator-selected takes and six per-seed episodes exist, but none has been checked by tooling for joins or voice consistency across scenes (scene 1 sits about 15–25 Hz higher in pitch than the others); the whole-piece comparison against the per-scene approach is not complete.
 - Music is not treated as a defect by the operator: it can be wanted at the start or on key ideas. The model cannot produce it on request (README FAQ Q2); a licensed music bed mixed in post-production is the controlled alternative and no such file is available.
 - The RAM floor is provisional; peak memory was not recorded.
 
@@ -135,4 +181,5 @@ Recipe, both files: source take `vv-pod2-scene2-s18428-20261119-202821.wav` (SHA
 - A British-accent reference clip for the British variant.
 - Decide whether to require or verify boost-off in the runner.
 - Add the in-line break test (gap ≥ 0.2 s with a pitch fall ≥ 15% before it) to take selection, and a dialogue rule against long subjects before the verb.
-- Generate the remaining scenes with the chosen voices and shift, select by ear, assemble and loudness-normalise with the two-pass method.
+- Finish the whole-piece comparison (seed 18429 not started) and decide per-scene versus whole-piece generation.
+- Confirm scenes 1 and 4 with method C by listening; check the pitch of scene 1 against the other scenes.

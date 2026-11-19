@@ -1,0 +1,68 @@
+{
+ "note": "operator selections by ear; automatic checks do not predict them reliably",
+ "scene1": {
+  "file": "vv-batch-s1-seed18430-20261119-221235-down1.5st-ln16.wav",
+  "seed": 18430,
+  "guidance": 1.6,
+  "shift_semitones": 1.5,
+  "text": "original dialogue, scene 1",
+  "operator_rating": "best, fewest issues",
+  "metrics": {
+   "floor_db": -55.2,
+   "music_frac": 0.35,
+   "f0_med": 149.1,
+   "f0_p90": 214.3
+  },
+  "method_C_file": "vv-batch-s1-seed18430-20261119-221235-down1.5st-C-resample-atempo-ln16.wav"
+ },
+ "scene2": {
+  "files": [
+   "vv-pod2-scene2-s18428-down1.5st-formant-kept-ln16.wav",
+   "vv-pod2-scene2-s18428-down1.8st-formant-kept-ln16.wav"
+  ],
+  "seed": 18428,
+  "guidance": 1.6,
+  "operator_rating": "method C at 1.8 st: 'WOW'",
+  "method_C_files": [
+   "vv-pod2-scene2-s18428-down1.5st-C-resample-atempo-ln16.wav",
+   "vv-pod2-scene2-s18428-down1.8st-C-resample-atempo-ln16.wav"
+  ],
+  "selected_file": "vv-pod2-scene2-s18428-down1.8st-C-resample-atempo-ln16.wav"
+ },
+ "scene3": {
+  "raw_file": "vv-batch-s3-seed18429-20261119-221235.wav",
+  "lowered_files": [
+   "vv-batch-s3-seed18429-20261119-221235-down1.5st-ln16.wav",
+   "vv-batch-s3-seed18429-20261119-221235-down1.8st-ln16.wav"
+  ],
+  "seed": 18429,
+  "guidance": 1.6,
+  "operator_rating": "down1.2st: absolute favourite; down1.5st and down1.8st: terrible on this take; raw: excellent",
+  "metrics": {
+   "floor_db": -79.2,
+   "music_frac": 0.0,
+   "f0_med": 131.1,
+   "f0_p90": 206.9
+  },
+  "selected_file": "vv-batch-s3-seed18429-20261119-221235-down1.2st-C-resample-atempo-ln16.wav"
+ },
+ "scene4": {
+  "raw_file": "vv-batch-s4-seed18428-20261119-221235.wav",
+  "candidate_file": "vv-batch-s4-seed18428-20261119-221235-down1.2st-ln16.wav",
+  "seed": 18428,
+  "guidance": 1.6,
+  "operator_rating": "raw: very good; probably needs 1.2 semitones (to be confirmed by listening)",
+  "metrics": {
+   "floor_db": -94.3,
+   "music_frac": 0.0,
+   "f0_med": 129.0,
+   "f0_p90": 166.7
+  },
+  "method_C_file": "vv-batch-s4-seed18428-20261119-221235-down1.2st-C-resample-atempo-ln16.wav"
+ },
+ "method": {
+  "chosen": "C: asetrate (resample) + aresample 24000 + atempo (1/ratio) + loudnorm I=-16 TP=-1.5 LRA=11",
+  "operator_rating": "scene 3 seed 18429 at 1.2 st: absolute best of four methods",
+  "rejected_or_inferior": "rubberband formant-preserved variants sounded metallic"
+ }
+}
