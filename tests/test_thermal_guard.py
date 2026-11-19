@@ -424,3 +424,36 @@ def test_k10temp_sysfs_reading_uses_the_hottest_of_tctl_and_tdie(tmp_path: Path)
         capture_output=True, text=True, check=False,
     )
     assert out.stdout.strip() == "71"
+
+
+def _preflight_with_cpu_window(tmp_path: Path, cpu_seq: list[int], **extra: str):
+    bin_dir = make_sensor_stubs(tmp_path / "bin", cpu_seq=cpu_seq, gpu=55)
+    log = tmp_path / "thermal.log"
+    with StatWriter(bin_dir / "proc_stat", [(60, 0.95)]):
+        result = run_preflight(bin_dir, log, THERMAL_PREFLIGHT_STABLE_SAMPLES="6",
+                               THERMAL_PREFLIGHT_WAIT_SECONDS="3", **extra)
+    return result, log.read_text(encoding="utf-8")
+
+
+def test_noisy_but_safe_cpu_window_is_accepted(tmp_path: Path):
+    # Every sample <= 70, median 58, no trend: Tctl burst noise (52..68) is not a hazard.
+    result, text = _preflight_with_cpu_window(tmp_path, [52, 68, 55, 66, 53, 65, 54, 64])
+    assert result.returncode == 0, text
+    assert "PREFLIGHT_OK" in text and "trend=" in text
+
+
+def test_window_sitting_just_under_the_limit_is_refused_by_the_median_margin(tmp_path: Path):
+    result, text = _preflight_with_cpu_window(tmp_path, [69, 68, 70, 69, 68, 70, 69, 68])
+    assert result.returncode == 2 and "PREFLIGHT_OK" not in text
+    assert "median<=65" in text
+
+
+def test_rising_window_is_refused_even_when_every_sample_is_below_the_limit(tmp_path: Path):
+    result, text = _preflight_with_cpu_window(tmp_path, [50, 52, 54, 56, 58, 60, 62, 64, 66, 68])
+    assert result.returncode == 2 and "PREFLIGHT_OK" not in text
+    assert "trend=" in text
+
+
+def test_any_sample_above_the_limit_still_restarts_the_window(tmp_path: Path):
+    result, text = _preflight_with_cpu_window(tmp_path, [55, 55, 55, 71, 55, 55, 55, 71])
+    assert result.returncode == 2 and "PREFLIGHT_OK" not in text
