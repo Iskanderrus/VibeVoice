@@ -151,7 +151,7 @@ class VibeVoiceForConditionalGenerationInference(VibeVoicePreTrainedModel, Gener
         with torch.no_grad():
             if speech_type == "audio":
                 # Encode audio to acoustic latents
-                encoder_output = self.model.acoustic_tokenizer.encode(speech_tensors.unsqueeze(1))
+                encoder_output = self.model.acoustic_tokenizer.encode(speech_tensors.unsqueeze(1).to(device=self.model.acoustic_tokenizer.device, dtype=self.model.acoustic_tokenizer.dtype))
                 acoustic_latents = encoder_output.sample(dist_type=self.model.acoustic_tokenizer.std_dist_type)[0]
                 
                 # Apply scaling and bias
@@ -219,9 +219,9 @@ class VibeVoiceForConditionalGenerationInference(VibeVoicePreTrainedModel, Gener
         
         # Process speech inputs if provided
         if speech_tensors is not None and speech_masks is not None:
-            acoustic_features, speech_embeds = self._process_speech_inputs(speech_tensors.to(self.dtype), speech_masks)
+            acoustic_features, speech_embeds = self._process_speech_inputs(speech_tensors.to(device=self.model.acoustic_tokenizer.device, dtype=self.model.acoustic_tokenizer.dtype), speech_masks)
             if speech_input_mask is not None:
-                inputs_embeds[speech_input_mask] = speech_embeds
+                inputs_embeds[speech_input_mask] = speech_embeds.to(device=inputs_embeds.device, dtype=inputs_embeds.dtype)
 
         outputs = self.model(
             inputs_embeds=inputs_embeds,
@@ -668,7 +668,7 @@ class VibeVoiceForConditionalGenerationInference(VibeVoicePreTrainedModel, Gener
                 # Combine acoustic and semantic features for next input
                 acoustic_embed = self.model.acoustic_connector(speech_latent)
                 semantic_embed = self.model.semantic_connector(semantic_features)
-                diffusion_embeds = acoustic_embed + semantic_embed
+                diffusion_embeds = (acoustic_embed + semantic_embed).to(device=next_inputs_embeds.device, dtype=next_inputs_embeds.dtype)
 
                 # Update embeddings for diffusion indices
                 next_inputs_embeds[diffusion_indices] = diffusion_embeds
@@ -699,7 +699,7 @@ class VibeVoiceForConditionalGenerationInference(VibeVoicePreTrainedModel, Gener
     @torch.no_grad()
     def sample_speech_tokens(self, condition, neg_condition, cfg_scale=3.0):
         self.model.noise_scheduler.set_timesteps(self.ddpm_inference_steps)
-        condition = torch.cat([condition, neg_condition], dim=0).to(self.model.prediction_head.device)
+        condition = torch.cat([condition, neg_condition], dim=0).to(device=self.model.prediction_head.device, dtype=self.model.prediction_head.dtype)
         speech = torch.randn(condition.shape[0], self.config.acoustic_vae_dim).to(condition)
         for t in self.model.noise_scheduler.timesteps:
             half = speech[: len(speech) // 2]

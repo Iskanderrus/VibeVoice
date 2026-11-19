@@ -181,7 +181,12 @@ class VibeVoiceRuntime:
             attn_primary = "flash_attention_2" if device == "cuda" else "sdpa"
             model_kwargs["attn_implementation"] = attn_primary
 
-            if device == "cuda" and self.settings.cpu_offload:
+            if device == "cuda" and self.settings.language_model_device == "cpu":
+                # Tested 4 GiB profile: CPU fp32 language model, CUDA speech modules.
+                # Avoid accelerate offload hooks on directly accessed speech tensors.
+                model_kwargs["device_map"] = "cpu"
+                self.device_mode = "cuda_tokenizers_cpu_language_model"
+            elif device == "cuda" and self.settings.cpu_offload:
                 self.settings.offload_dir.mkdir(parents=True, exist_ok=True)
                 from vibevoice.modular.configuration_vibevoice import VibeVoiceConfig
 
@@ -255,6 +260,8 @@ class VibeVoiceRuntime:
                 self.model.to("mps")
 
             self.model.eval()
+            if self.device_mode == "cuda_tokenizers_cpu_language_model":
+                self._place_hybrid_modules()
             self.model.set_ddpm_inference_steps(
                 num_steps=self.settings.default_inference_steps
             )
@@ -267,6 +274,19 @@ class VibeVoiceRuntime:
             raise
         except Exception as exc:
             raise classify_runtime_exception(exc, phase="load") from exc
+
+    def _place_hybrid_modules(self) -> None:
+        """Keep the language model fp32 on CPU and the speech submodules on CUDA."""
+        inner = self.model.model
+        inner.language_model.float()
+        self.model.lm_head.float()
+        for name in (
+            "acoustic_tokenizer", "semantic_tokenizer",
+            "acoustic_connector", "semantic_connector", "prediction_head",
+        ):
+            getattr(inner, name).to("cuda")
+        for name in ("speech_scaling_factor", "speech_bias_factor"):
+            inner._buffers[name] = inner._buffers[name].to("cuda")
 
     def synthesize(
         self,

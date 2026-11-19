@@ -396,7 +396,6 @@ def test_turing_bf16_emulation_is_not_treated_as_native_support(tmp_path: Path):
         source_revision=SOURCE_SHA,
         model_revision=MODEL_REV,
         source_revision_file=tmp_path / "missing",
-        require_source_revision_file=False,
         dtype="auto",
         idle_unload_seconds=0,
     )
@@ -406,7 +405,6 @@ def test_turing_bf16_emulation_is_not_treated_as_native_support(tmp_path: Path):
         source_revision=SOURCE_SHA,
         model_revision=MODEL_REV,
         source_revision_file=tmp_path / "missing",
-        require_source_revision_file=False,
         dtype="bfloat16",
         idle_unload_seconds=0,
     )
@@ -434,7 +432,6 @@ def test_ampere_native_bf16_is_accepted(tmp_path: Path):
         source_revision=SOURCE_SHA,
         model_revision=MODEL_REV,
         source_revision_file=tmp_path / "missing",
-        require_source_revision_file=False,
         dtype="auto",
         idle_unload_seconds=0,
     )
