@@ -107,10 +107,46 @@ def write_json(path: Path, record: dict) -> None:
     os.replace(temp, path)
 
 
+DEFAULT_SEED = 18427
+DEFAULT_CFG_SCALE = 1.3
+
+
+def parse_voices(items: list[str] | None) -> dict[str, Path]:
+    """`--voice RED=/path/a.wav --voice BLUE=/path/b.wav`: an explicit, complete speaker pair."""
+    voices: dict[str, Path] = {}
+    for item in items or []:
+        speaker, separator, raw = item.partition("=")
+        speaker = speaker.strip().upper()
+        if not separator or speaker not in {"RED", "BLUE"} or not raw.strip():
+            raise ValueError("--voice must be RED=<wav path> or BLUE=<wav path>")
+        if speaker in voices:
+            raise ValueError(f"--voice given twice for {speaker}")
+        path = Path(raw.strip()).expanduser().resolve()
+        if not path.is_file() or path.suffix.lower() != ".wav":
+            raise FileNotFoundError(f"Voice reference for {speaker} is not a WAV file: {path}")
+        voices[speaker] = path
+    if voices and set(voices) != {"RED", "BLUE"}:
+        raise ValueError("--voice must set both RED and BLUE, never one of them")
+    return voices
+
+
 def job_config(args) -> dict:
     model = (args.model_dir or MODEL).expanduser().resolve()
     manifest = load_manifest(model)
-    references_root, references = find_references()
+    voices = parse_voices(getattr(args, "voice", None))
+    if voices:
+        references_root = Path(os.path.commonpath([str(p.parent) for p in voices.values()]))
+        references = voices
+    else:
+        references_root, references = find_references()
+    seed = getattr(args, "seed", None)
+    seed = DEFAULT_SEED if seed is None else seed
+    cfg_scale = getattr(args, "cfg_scale", None)
+    cfg_scale = DEFAULT_CFG_SCALE if cfg_scale is None else cfg_scale
+    if isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed < 2**31:
+        raise ValueError("--seed must be an integer in 0..2147483647")
+    if not 1.0 <= float(cfg_scale) <= 3.0:
+        raise ValueError("--cfg-scale must be between 1.0 and 3.0")
     turns = dialogue(
         args.script.read_text(encoding="utf-8") if args.script else EXAMPLE
     )
@@ -119,7 +155,7 @@ def job_config(args) -> dict:
     return {
         "model_path": model, "manifest": manifest, "references_root": references_root,
         "references": references, "turns": turns, "device": device, "vram_mib": vram,
-        "source_revision": source_revision(),
+        "source_revision": source_revision(), "seed": seed, "cfg_scale": float(cfg_scale),
     }
 
 
@@ -164,7 +200,7 @@ def run_hybrid(job_id: str, config: dict, output: Path) -> dict:
 
     spec = {
         "job_id": job_id,
-        "seed": 18427,
+        "seed": config.get("seed", DEFAULT_SEED),
         "speakers": [
             {"speaker_id": key, "reference_path": str(path),
              "reference_sha256": sha256_file(path)}
@@ -175,7 +211,7 @@ def run_hybrid(job_id: str, config: dict, output: Path) -> dict:
             for key, phrase in config["turns"]
         ],
         "generation": {
-            "cfg_scale": 1.3,
+            "cfg_scale": config.get("cfg_scale", DEFAULT_CFG_SCALE),
             "inference_steps": 10,
             "disable_prefill": False,
             "max_length_times": 2.0,
@@ -256,6 +292,9 @@ def run(args) -> int:
         },
         "output_dir": str(DATA / "output"),
         "qualified_route": config["device"] in QUALIFIED_DEVICES,
+        "seed": config["seed"],
+        "cfg_scale": config["cfg_scale"],
+        "voice_sources": {key: str(path) for key, path in config["references"].items()},
     }
     if args.dry_run:
         print(json.dumps(public, indent=2))
@@ -301,6 +340,11 @@ def main() -> int:
     parser.add_argument("--device", choices=("auto", "hybrid", "cpu", "cuda"), default="auto")
     parser.add_argument("--model-dir", type=Path, default=None)
     parser.add_argument("--job-id", default=None)
+    parser.add_argument("--voice", action="append", metavar="SPEAKER=WAV",
+                        help="reference voice per speaker, both required: RED=a.wav --voice BLUE=b.wav")
+    parser.add_argument("--seed", type=int, default=None, help=f"default {DEFAULT_SEED}")
+    parser.add_argument("--cfg-scale", type=float, default=None,
+                        help=f"voice guidance 1.0-3.0, default {DEFAULT_CFG_SCALE}")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--foreground", action="store_true")
     parser.add_argument("--status", action="store_true")
@@ -333,6 +377,12 @@ def main() -> int:
             command += ["--script", str(args.script.resolve())]
         if args.model_dir:
             command += ["--model-dir", str(args.model_dir.resolve())]
+        for voice in args.voice or []:
+            command += ["--voice", voice]
+        if args.seed is not None:
+            command += ["--seed", str(args.seed)]
+        if args.cfg_scale is not None:
+            command += ["--cfg-scale", str(args.cfg_scale)]
         status_path = runs / f"{args.job_id}.json"
         write_json(status_path, {
             "job_id": args.job_id, "status": "STARTING", "log": str(log)

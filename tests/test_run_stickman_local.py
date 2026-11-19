@@ -147,3 +147,38 @@ def test_unqualified_cpu_and_cuda_routes_are_blocked_without_fallback(tmp_path: 
             runner.execute("job", {"device": device}, tmp_path)
     runner.require_qualified_device("hybrid")  # the only route behind the hardened guards
     assert not hasattr(runner, "ThermalGuard"), "the weaker in-process monitor must not exist"
+
+
+def _wav(path: Path) -> Path:
+    path.write_bytes(b"RIFF0000WAVEfmt ")
+    return path
+
+
+def test_voice_pair_must_be_complete_wav_files(tmp_path: Path):
+    red, blue = _wav(tmp_path / "frank.wav"), _wav(tmp_path / "carter.wav")
+    pair = runner.parse_voices([f"red={red}", f"BLUE={blue}"])
+    assert pair == {"RED": red.resolve(), "BLUE": blue.resolve()}
+    assert runner.parse_voices(None) == {} and runner.parse_voices([]) == {}
+    for bad in ([f"RED={red}"], [f"RED={red}", f"RED={blue}"], ["GREEN=" + str(red)],
+                [f"RED={red}", "BLUE=" + str(tmp_path / "missing.wav")],
+                [f"RED={red}", "BLUE=" + str(_wav(tmp_path / "x.mp3"))], ["RED"]):
+        with pytest.raises((ValueError, FileNotFoundError)):
+            runner.parse_voices(bad)
+
+
+def test_voice_seed_and_guidance_are_validated_and_reach_the_job(tmp_path: Path, monkeypatch):
+    from argparse import Namespace
+
+    red, blue = _wav(tmp_path / "frank.wav"), _wav(tmp_path / "carter.wav")
+    monkeypatch.setattr(runner, "load_manifest", lambda model: {"revision": "r"})
+    monkeypatch.setattr(runner, "gpu_vram_mib", lambda: 4096)
+    monkeypatch.setattr(runner, "source_revision", lambda: "a" * 40)
+    base = {"model_dir": tmp_path, "script": None, "device": "auto"}
+    config = runner.job_config(Namespace(
+        **base, voice=[f"RED={red}", f"BLUE={blue}"], seed=7, cfg_scale=1.6))
+    assert config["references"] == {"RED": red.resolve(), "BLUE": blue.resolve()}
+    assert (config["seed"], config["cfg_scale"], config["device"]) == (7, 1.6, "hybrid")
+    for bad in ({"seed": -1}, {"seed": 2**31}, {"seed": True}, {"cfg_scale": 0.5}, {"cfg_scale": 3.5}):
+        with pytest.raises(ValueError):
+            runner.job_config(Namespace(**base, voice=[f"RED={red}", f"BLUE={blue}"],
+                                        **{"seed": None, "cfg_scale": None, **bad}))
