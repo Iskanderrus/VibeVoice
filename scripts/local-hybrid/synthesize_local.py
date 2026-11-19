@@ -37,6 +37,20 @@ def _numbered(turns):
     return [(order[t["speaker_id"]], t) for t in turns]
 
 
+def _limit_framework_threads() -> None:
+    """Match torch's intra/inter-op pools to the profile's thread budget (OMP env alone is advisory)."""
+    import os
+
+    import torch
+
+    n = int(os.environ.get("OMP_NUM_THREADS", "2"))
+    torch.set_num_threads(n)
+    try:
+        torch.set_num_interop_threads(1)
+    except RuntimeError:
+        pass  # already set; the intra-op budget above is the one that matters
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dialogue", type=Path, required=True)
@@ -45,6 +59,7 @@ def main() -> None:
 
     from pathlib import Path as P
 
+    _limit_framework_threads()
     from stickman_service.model_manager import VibeVoiceRuntime
     from stickman_service.settings import Settings
 

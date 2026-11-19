@@ -13,7 +13,9 @@ GPU_RESUME=${THERMAL_GPU_RESUME_C:-65}
 CPU_RESUME=${THERMAL_CPU_RESUME_C:-70}
 PAUSE_MAX=${THERMAL_PAUSE_MAX_SECONDS:-240}
 CPU_CRITICAL=90
-SMOOTH_SAMPLES=${THERMAL_SMOOTH_SAMPLES:-5}
+KILL_GRACE=${THERMAL_KILL_GRACE_SECONDS:-5}
+POLL=${THERMAL_POLL_SECONDS:-0.5}
+SMOOTH_SAMPLES=${THERMAL_SMOOTH_SAMPLES:-9}
 STOPPED=0
 PAUSED_AT=0
 CPU_HISTORY=()
@@ -34,9 +36,19 @@ signal_tree() {  # signal_tree <SIGNAL> <root pid>
   local pid
   for pid in $(tree_pids "$2"); do kill "-$1" "$pid" 2>/dev/null || true; done
 }
-stop_worker() {  # resume first so the workers can receive TERM, then terminate the tree
-  signal_tree CONT "$PID"
-  signal_tree TERM "$PID"
+stop_worker() {  # resume so the workers can receive TERM, then TERM, then KILL anything left
+  local pids pid i alive
+  pids="$(tree_pids "$PID")"
+  for pid in $pids; do kill -CONT "$pid" 2>/dev/null || true; done
+  for pid in $pids; do kill -TERM "$pid" 2>/dev/null || true; done
+  for i in $(seq 1 "$KILL_GRACE"); do
+    alive=0
+    for pid in $pids; do if kill -0 "$pid" 2>/dev/null; then alive=1; fi; done
+    [ "$alive" = 0 ] && return 0
+    sleep 1
+  done
+  for pid in $pids; do kill -KILL "$pid" 2>/dev/null || true; done
+  echo "$(date -u +%FT%TZ) KILL_ESCALATION after ${KILL_GRACE}s" >> "$LOG"
 }
 
 while kill -0 "$PID" 2>/dev/null; do
@@ -75,6 +87,6 @@ while kill -0 "$PID" 2>/dev/null; do
     STOPPED=0
     echo "RESUME" >> "$LOG"
   fi
-  sleep 1
+  sleep "$POLL"
 done
 echo "process exited" >> "$LOG"
