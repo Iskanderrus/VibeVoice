@@ -14,10 +14,10 @@ PY = os.path.expanduser("~/.local/share/stickman-vibevoice/venv-rebuild/bin/pyth
 SCEN = "/tmp/claude-1002/-home-alex-study-Projects-products-content-factory-os/4c65935b-378e-49ca-9850-13dfb7ecbccd/scratchpad/podcast_v3"
 RED = f"{REPO}/demo/voices/en-Frank_man.wav"
 BLUE = f"{REPO}/demo/voices/en-Carter_man.wav"
-SEEDS = [18427, 18428, 18429, 18430, 18431]
+SEEDS = [18427, 18428, 18429, 18430, 18431, 18432]
 CFG = "1.6"
-FLOOR_MAX, F0_BAND, F0_P90_MAX = -55.0, (95.0, 155.0), 215.0
-MUSIC_FRAC_MAX = 0.15   # share of 2 s windows whose quietest 5% stays above -48 dBFS (clean refs 0.04-0.19; BGM ref 1.0)
+FLOOR_MAX, F0_BAND, F0_P90_MAX = -70.0, (95.0, 135.0), 190.0
+MUSIC_FRAC_MAX = 0.03   # share of 2 s windows whose quietest 5% stays above -48 dBFS (clean refs 0.04-0.19; BGM ref 1.0)
 T = time.strftime("%Y%m%d-%H%M%S")
 LOG = "/tmp/claude-1002/vvpre/pod3.log"
 def log(m):

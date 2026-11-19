@@ -68,9 +68,43 @@ Findings:
 - **Voice drift check:** per-take pitch median in 95–155 Hz and p90 ≤ 215 Hz. The two references differ by only 14 Hz, so this band guards gross drift (for example towards a female voice), not speaker identity; no speaker-embedding tool was available.
 - **Loudness:** takes sit at about −25 dB mean volume; v3 normalises the assembled file to −16 LUFS.
 
-## 5. v3 run (in progress when this was written)
+## 5. Controlled comparisons, the break-in-a-line finding, and the selected takes
 
-Frank RED / Carter BLUE, `cfg_scale` 1.6, the rewritten dialogue, up to 5 seeds per scene, checks: music share ≤ 0.15, floor ≤ −55 dB, pitch band. If no seed passes, the best take is used and flagged. Results will be appended to this file.
+The v3 automatic-selection run was abandoned after the operator's ratings contradicted the checks: with thresholds tightened to floor ≤ −70 dB, music share ≤ 0.03, pitch median 95–135 Hz and p90 ≤ 190 Hz (from ≤ −55 / ≤ 0.15 / 95–155 / ≤ 215), the metrics still did not predict what the operator liked. The work moved to controlled comparisons of the **same scene** (scene 2 of the original dialogue, RED = Frank, BLUE = Carter, boost off, same guarded limits), changing one setting at a time, with loudness-matched copies for fair listening.
+
+**Reproducibility.** The same seed, text, voices and settings reproduce a take **byte-for-byte** (two v3 scene-1 jobs with seed 18427 have the identical SHA-256). A good seed is therefore reusable, and seed is the main source of variation.
+
+**Guidance × seed grid** (scene 2, original text; `scripts/exp_scene2.py`; nothing rejected):
+
+| Guidance | Seed | Floor | Music share | Pitch median / p90 | Note |
+|---|---|---|---|---|---|
+| 1.3 | 18427 | −94.2 dB | 0.00 | 128 / 172 Hz | clean |
+| 1.3 | 18428 | −80.7 dB | 0.00 | 157 / 210 Hz | pitch drifted high |
+| 1.3 | 18429 | −50.7 dB | 0.20 | 128 / 209 Hz | music at 16–19 s |
+| 1.6 | 18427 | −39.6 dB | 0.92 | 149 / 235 Hz | worst take |
+| 1.6 | 18428 | −81.8 dB | 0.00 | 125 / 175 Hz | operator: best |
+| 1.6 | 18429 | −73.4 dB | 0.08 | 130 / 200 Hz | mild music at 10, 16 s |
+| 2.0 | 18427 | −56.4 dB | 0.21 | 135 / 233 Hz | music at 2–4 s, 13 s |
+| 2.0 | 18428 | −84.5 dB | 0.00 | 136 / 179 Hz | operator: good |
+| 2.0 | 18429 | −74.3 dB | 0.00 | 142 / 211 Hz | clean, higher pitch |
+
+Guidance does not reliably help (clean or nearly clean: 2 of 3 at 1.3, 1 of 3 at 1.6, 2 of 3 at 2.0); seed dominates. Pitch medians of the takes ranged 125–157 Hz against references at 116 and 130 Hz.
+
+**Lower, younger voices.** The model has no pitch control; the voice follows the reference clip, and takes drift upward from it. Two routes were tried, both with formants preserved (`ffmpeg` `rubberband=pitch=2^(−n/12):formant=preserved:pitchq=quality`):
+1. **Post-shift of a finished take** (instant, both speakers move together): for the operator's chosen take, down 1.5 / 1.8 / 2 / 3 / 4 semitones gave pitch medians 127 / 124 / 123 / 115 / 110 Hz from 137 Hz. The operator found **1.5 semitones the best and most natural**.
+2. **Lowered references** (the lowered clips are in `~/.local/share/stickman-vibevoice/refs-shifted/`, the originals untouched): scene 1 with the rewritten dialogue, −2 semitones, seed 18427, guidance 1.6 gave pitch median **107 Hz against 145 Hz** for the same seed with the original references, floor −83.7 dB against −57.6 dB, music share 0.04 against 0.12. One take, not a conclusion; the remaining lowered-reference takes were still running when this was written and will be appended.
+"Younger" is not controlled by pitch: age lives in the reference's timbre, so a young low voice needs a suitable reference clip (own, contracted or licensed voice, with consent).
+
+**Breaks inside a speaker's line.** The operator heard a pause **and a tone movement** between "person" and "turns" in the second speaker's first line of the guidance-2.0 take. Measured: a 0.46 s gap at 4.3 s with a pitch fall of about 40% in the last 120 ms before it, i.e. the model gives the subject a clause-final fall and restarts. Cutting the gap (`scripts/tighten.py`: segments assigned to the known turns by syllable-count dynamic programming, then intra-turn gaps capped and inter-turn gaps clamped to 0.35–0.65 s) shortens the pause but cannot repair the intonation; the variants made from it are not the selected takes. Across the nine takes, **7 of the 8 measurable takes have a gap ≥ 0.15 s inside a second-speaker line**; the only one without is guidance 1.6, seed 18428 (one take had too few segments to measure). The line-to-audio matching is an estimate (no speech recogniser) and the pitch tracker is rough.
+
+**Selected takes (operator: both "excellent")**, in `~/.local/share/stickman-vibevoice/output/`:
+
+| File | SHA-256 | Duration | Loudness |
+|---|---|---|---|
+| `vv-pod2-scene2-s18428-down1.5st-formant-kept-ln16.wav` | `4a4d1d80d79965348cf70a5dd614769faef90a29de5eea53fb2b7054db8cb22d` | 27.2 s | −17.2 LUFS, −1.5 dBTP |
+| `vv-pod2-scene2-s18428-down1.8st-formant-kept-ln16.wav` | `8c43cc97708c7834f89b8cbaf8dc3932d038c5255faa6872af1b88c9b30b60d2` | 27.2 s | −17.4 LUFS, −1.5 dBTP |
+
+Recipe, both files: source take `vv-pod2-scene2-s18428-20261119-202821.wav` (SHA-256 `9aa5283cce15e88e7cc6e1f497ed302612a0f8b6a5bb0bd118480361295bd636`): scene 2 of the original dialogue (`scene2.txt` sha256 prefix `191b36f32bee851d`, 7 turns), RED = `demo/voices/en-Frank_man.wav`, BLUE = `demo/voices/en-Carter_man.wav`, seed 18428, `cfg_scale` 1.6, boost off, 2 threads on cores 0,2, 150% quota, hybrid route, runner with the uncommitted `--voice/--seed/--cfg-scale` change that became `00ff115`. Then `rubberband` pitch ratio 0.91700 (1.5 semitones) or 0.90458 (1.8 semitones) with formants preserved, then single-pass `loudnorm=I=-16:TP=-1.5:LRA=11` (measured result above). The source take has a measured pitch median of 125 Hz and the shifted files about 115 Hz by the rough tracker; the source take has no gap inside any second-speaker line. Loudness is about 1 LUFS under the −16 target because single-pass `loudnorm` was used for these copies.
 
 ## 6. Source and runs on record
 
@@ -80,7 +114,9 @@ Frank RED / Carter BLUE, `cfg_scale` 1.6, the rewritten dialogue, up to 5 seeds 
 ## 7. Not established
 
 - No sustained-load thermal qualification; GPU margin 2 °C; boost-off is a manual non-persistent setting.
-- Audio quality, speaker identity, accents, transcript fidelity and claim accuracy of the dialogue are unverified by tooling (no speech recogniser, no speaker-embedding model); judgements above come from the operator's listening.
+- Audio quality, speaker identity, accents, transcript fidelity and claim accuracy of the dialogue are unverified by tooling (no speech recogniser, no speaker-embedding model); judgements above come from the operator's listening. The automatic checks (music share, floor, pitch band, break detector) do **not** predict the operator's ratings reliably and are heuristics tuned on a handful of takes.
+- Only scene 2 has been explored in depth; the other three scenes have not been selected, and nothing has been assembled into an episode with the chosen settings.
+- Music is not treated as a defect by the operator: it can be wanted at the start or on key ideas. The model cannot produce it on request (README FAQ Q2); a licensed music bed mixed in post-production is the controlled alternative and no such file is available.
 - The RAM floor is provisional; peak memory was not recorded.
 
 ## 8. Follow-ups (not started)
@@ -89,3 +125,5 @@ Frank RED / Carter BLUE, `cfg_scale` 1.6, the rewritten dialogue, up to 5 seeds 
 - Per-turn synthesis with exact pacing control; a speech-recognition check for transcript and alignment; a speaker-embedding check for voice identity.
 - A British-accent reference clip for the British variant.
 - Decide whether to require or verify boost-off in the runner.
+- Add the in-line break test (gap ≥ 0.2 s with a pitch fall ≥ 15% before it) to take selection, and a dialogue rule against long subjects before the verb.
+- Generate the remaining scenes with the chosen voices and shift, select by ear, assemble and loudness-normalise with the two-pass method.
