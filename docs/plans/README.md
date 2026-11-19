@@ -7,3 +7,4 @@ This fork has GitHub Issues disabled, so portfolio work is minted in the owning 
 - [VV-001 runtime qualification plan](plan-VV-001-managed-runtime-qualification.md) — fork-side detailed evidence/runbook shared by both external tickets.
 
 Plans define local runtime work and acceptance only. Portfolio timing is controlled solely by CFOS `docs/implementation-order.md`.
+- [SA-175 runtime safety and podcast prototype evidence](../evidence/sa-175-runtime-safety-and-podcast-prototype.md) — thermal, voice and music findings from guarded runs (evidence, not a qualification).

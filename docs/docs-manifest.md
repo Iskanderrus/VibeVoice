@@ -14,6 +14,10 @@ categories:
     path: docs/plans
     index: docs/plans/README.md
     authoritative_for: local_runtime_qualification_scope
+  evidence:
+    path: docs/evidence
+    authoritative: false
+    note: dated evidence records and the scripts that produced them; not scope or schedule authority
   implementation_order:
     path: docs/implementation-order.md
     authoritative: false
