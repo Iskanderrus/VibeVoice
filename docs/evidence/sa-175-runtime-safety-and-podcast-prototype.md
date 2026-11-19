@@ -92,7 +92,16 @@ Guidance does not reliably help (clean or nearly clean: 2 of 3 at 1.3, 1 of 3 at
 
 **Lower, younger voices.** The model has no pitch control; the voice follows the reference clip, and takes drift upward from it. Two routes were tried, both with formants preserved (`ffmpeg` `rubberband=pitch=2^(−n/12):formant=preserved:pitchq=quality`):
 1. **Post-shift of a finished take** (instant, both speakers move together): for the operator's chosen take, down 1.5 / 1.8 / 2 / 3 / 4 semitones gave pitch medians 127 / 124 / 123 / 115 / 110 Hz from 137 Hz. The operator found **1.5 semitones the best and most natural**.
-2. **Lowered references** (the lowered clips are in `~/.local/share/stickman-vibevoice/refs-shifted/`, the originals untouched): scene 1 with the rewritten dialogue, −2 semitones, seed 18427, guidance 1.6 gave pitch median **107 Hz against 145 Hz** for the same seed with the original references, floor −83.7 dB against −57.6 dB, music share 0.04 against 0.12. One take, not a conclusion; the remaining lowered-reference takes were still running when this was written and will be appended.
+2. **Lowered references** (the lowered clips are in `~/.local/share/stickman-vibevoice/refs-shifted/`, the originals untouched): scene 1 with the rewritten dialogue, guidance 1.6, both speakers' references lowered (`scripts/exp_pitch.py`). The unshifted take of the same scene and seed 18427 has a pitch median of 145 Hz (floor −57.6 dB, music share 0.12).
+
+| References lowered | Seed | Floor | Music share | Pitch median / p90 |
+|---|---|---|---|---|
+| −2 semitones | 18427 | −83.7 dB | 0.04 | 107 / 141 Hz |
+| −2 semitones | 18428 | −90.8 dB | 0.07 | 107 / 140 Hz |
+| −3 semitones | 18427 | −62.1 dB | 0.12 | 114 / 188 Hz |
+| −3 semitones | 18428 | −87.3 dB | 0.07 | 103 / 148 Hz |
+
+The lowered references do move the generated pitch down by about 40 Hz and tend to give clean takes, but quality still varies by seed (the −3 / 18427 take is the weakest). **The operator still rated the post-shifted copies of the clean scene-2 take (1.5 and 1.8 semitones) as the best**, so model-generated lowered references are not adopted. A further test of lowered references on the clean scene-2 take (1.5/1.8/2 semitones, `exp_pitch2.py`) was queued and **cancelled before it started** because that decision made it moot; it has no results.
 "Younger" is not controlled by pitch: age lives in the reference's timbre, so a young low voice needs a suitable reference clip (own, contracted or licensed voice, with consent).
 
 **Breaks inside a speaker's line.** The operator heard a pause **and a tone movement** between "person" and "turns" in the second speaker's first line of the guidance-2.0 take. Measured: a 0.46 s gap at 4.3 s with a pitch fall of about 40% in the last 120 ms before it, i.e. the model gives the subject a clause-final fall and restarts. Cutting the gap (`scripts/tighten.py`: segments assigned to the known turns by syllable-count dynamic programming, then intra-turn gaps capped and inter-turn gaps clamped to 0.35–0.65 s) shortens the pause but cannot repair the intonation; the variants made from it are not the selected takes. Across the nine takes, **7 of the 8 measurable takes have a gap ≥ 0.15 s inside a second-speaker line**; the only one without is guidance 1.6, seed 18428 (one take had too few segments to measure). The line-to-audio matching is an estimate (no speech recogniser) and the pitch tracker is rough.
