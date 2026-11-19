@@ -10,6 +10,9 @@
 # A reading outside 1..119 °C is treated as a sensor failure, never as a safe value.
 
 THERMAL_HWMON_ROOT=${THERMAL_HWMON_ROOT:-/sys/class/hwmon}
+# Every external sensor command runs under a hard deadline: a hung tool is a sensor failure
+# (empty reading), never a stale "safe" value and never an unbounded sampling stall.
+THERMAL_SENSOR_TIMEOUT_SECONDS=${THERMAL_SENSOR_TIMEOUT_SECONDS:-2}
 
 _plausible_c() {
   case "$1" in ''|*[!0-9]*) return 1 ;; esac
@@ -30,13 +33,13 @@ read_cpu_c() {
     done
   done
   if [ -z "$best" ]; then
-    best="$(sensors 2>/dev/null | awk '/Tctl:|Tdie:|Package id 0:|Core 0:/{for(i=1;i<=NF;i++)if($i~/\+[0-9]+(\.[0-9]+)?/){gsub(/[^0-9.]/,"",$i);print int($i);exit}}' || true)"
+    best="$(timeout -k 1 "$THERMAL_SENSOR_TIMEOUT_SECONDS" sensors 2>/dev/null | awk '/Tctl:|Tdie:|Package id 0:|Core 0:/{for(i=1;i<=NF;i++)if($i~/\+[0-9]+(\.[0-9]+)?/){gsub(/[^0-9.]/,"",$i);print int($i);exit}}' || true)"
   fi
   if _plausible_c "$best"; then echo "$best"; fi
 }
 
 read_gpu_c() {
   local v
-  v="$(nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits 2>/dev/null | head -n1 | tr -cd '0-9' || true)"
+  v="$(timeout -k 1 "$THERMAL_SENSOR_TIMEOUT_SECONDS" nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits 2>/dev/null | head -n1 | tr -cd '0-9' || true)"
   if _plausible_c "$v"; then echo "$v"; fi
 }

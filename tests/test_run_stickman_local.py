@@ -137,3 +137,13 @@ def test_hybrid_runner_imports_stickman_service_outside_repo_without_pythonpath(
     # Exit 42 means run_hybrid got past the stickman_service import to the launch point.
     assert result.returncode == 42, result.stderr
     assert "ModuleNotFoundError" not in result.stderr
+
+
+def test_unqualified_cpu_and_cuda_routes_are_blocked_without_fallback(tmp_path: Path):
+    for device in ("cpu", "cuda"):
+        with pytest.raises(RuntimeError, match="BLOCKED_AUDIO_RUNTIME"):
+            runner.require_qualified_device(device)
+        with pytest.raises(RuntimeError, match="BLOCKED_AUDIO_RUNTIME"):
+            runner.execute("job", {"device": device}, tmp_path)
+    runner.require_qualified_device("hybrid")  # the only route behind the hardened guards
+    assert not hasattr(runner, "ThermalGuard"), "the weaker in-process monitor must not exist"

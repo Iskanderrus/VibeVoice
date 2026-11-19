@@ -66,6 +66,12 @@ The canonical local entrypoint is:
 python scripts/run_stickman_local.py
 ~~~
 
+Only the `hybrid` route is qualified: it alone runs behind the thermal preflight (sustained safe idle,
+valid CPU counters, RAM headroom), the raw-reading watchdog and the owned-scope cleanup proof. Explicit
+`--device cpu|cuda`, and automatic selection of either, stops with `BLOCKED_AUDIO_RUNTIME`; nothing
+falls back to CPU. The RAM admission floor in the profile is provisional until a guarded smoke records
+the real peak.
+
 It reads the installed 1.5B model's local \`.stickman-model.json\`, discovers
 \`~/.local/share/stickman-vibevoice/references/red.wav\` and \`blue.wav\` (or
 the repository's bundled demo voices), calculates their SHA-256 values,

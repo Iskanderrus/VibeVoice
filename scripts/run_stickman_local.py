@@ -11,19 +11,15 @@ import os
 import re
 import subprocess
 import sys
-import threading
 import time
 import traceback
 import uuid
-from dataclasses import replace
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 DATA = Path.home() / ".local" / "share" / "stickman-vibevoice"
 MODEL = DATA / "models" / "VibeVoice-1.5B"
 MIN_GPU_MIB = 8192  # 4 GiB GTX 1650 Ti OOMs during generation.
-CPU_STOP_C = 88.0
-GPU_STOP_C = 80.0
 EXAMPLE = (
     "RED: Why does remembering something feel like proof it happened?\n"
     "BLUE: Because the brain reconstructs memories rather than replaying them."
@@ -103,68 +99,6 @@ def select_device(requested: str, vram_mib: int) -> str:
     if 3500 <= vram_mib < MIN_GPU_MIB:
         return "hybrid"
     return "cuda" if vram_mib >= MIN_GPU_MIB else "cpu"
-
-
-def cpu_temperature_c() -> float | None:
-    temperatures = []
-    for sensor in Path("/sys/class/hwmon").glob("hwmon*"):
-        try:
-            name = (sensor / "name").read_text().strip().lower()
-            if name not in {"k10temp", "coretemp", "zenpower"}:
-                continue
-            for file in sensor.glob("temp*_input"):
-                value = float(file.read_text().strip()) / 1000
-                if 0 < value < 150:
-                    temperatures.append(value)
-        except (OSError, ValueError):
-            continue
-    return max(temperatures, default=None)
-
-
-def gpu_temperature_c() -> float | None:
-    try:
-        p = subprocess.run(
-            ["nvidia-smi", "--query-gpu=temperature.gpu",
-             "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=8, check=True
-        )
-        return float(p.stdout.splitlines()[0].strip())
-    except (FileNotFoundError, ValueError, IndexError,
-            subprocess.SubprocessError):
-        return None
-
-
-class ThermalGuard:
-    """Cancel generation if a measured hardware temperature crosses a stop limit."""
-
-    def __init__(self, manager, job_id: str, device: str):
-        self.manager = manager
-        self.job_id = job_id
-        self.device = device
-        self.abort = threading.Event()
-        self.done = threading.Event()
-        self.thread = threading.Thread(target=self._monitor, daemon=True)
-
-    def _monitor(self):
-        while not self.done.is_set():
-            cpu = cpu_temperature_c()
-            gpu = gpu_temperature_c() if self.device == "cuda" else None
-            if (cpu is not None and cpu >= CPU_STOP_C) or (
-                gpu is not None and gpu >= GPU_STOP_C
-            ):
-                print(f"THERMAL_STOP cpu={cpu}C gpu={gpu}C", flush=True)
-                self.abort.set()
-                self.manager.cancel(self.job_id)
-                return
-            self.done.wait(5)
-
-    def __enter__(self):
-        self.thread.start()
-        return self
-
-    def __exit__(self, *_):
-        self.done.set()
-        self.thread.join(timeout=9)
 
 
 def write_json(path: Path, record: dict) -> None:
@@ -287,85 +221,25 @@ def run_hybrid(job_id: str, config: dict, output: Path) -> dict:
     }
 
 
-def execute(job_id: str, config: dict, output: Path) -> dict:
-    if config["device"] == "hybrid":
-        return run_hybrid(job_id, config, output)
-    # Prevent editable installs from importing a different local hardening checkout.
-    sys.path.insert(0, str(REPO))
-    os.environ["HF_HUB_OFFLINE"] = "1"
-    os.environ["TRANSFORMERS_OFFLINE"] = "1"
-    from stickman_service.hashing import sha256_file
-    from stickman_service.model_manager import ModelManager
-    from stickman_service.schemas import (
-        DialogueRequest, DialogueTurn, SpeakerBinding
-    )
-    from stickman_service.settings import Settings
+QUALIFIED_DEVICES = frozenset({"hybrid"})
 
-    revisions = config["manifest"]
-    references = config["references"]
-    request = DialogueRequest(
-        job_id=job_id,
-        source_revision=config["source_revision"],
-        model_revision=revisions["revision"],
-        speakers=[
-            SpeakerBinding(
-                speaker_id=key, reference_path=str(path),
-                reference_sha256=sha256_file(path)
-            ) for key, path in references.items()
-        ],
-        turns=[DialogueTurn(speaker_id=k, text=v) for k, v in config["turns"]],
-    )
-    vram = config["vram_mib"]
-    base = Settings(
-        model_path=config["model_path"],
-        model_manifest_path=config["model_path"] / ".stickman-model.json",
-        model_revision=revisions["revision"],
-        tokenizer_revision=(
-            revisions["tokenizer"]["revision"]
-            if isinstance(revisions.get("tokenizer"), dict)
-            and revisions["tokenizer"].get("revision")
-            else Settings().tokenizer_revision
-        ),
-        source_revision=config["source_revision"],
-        reference_dir=config["references_root"],
-        output_dir=output,
-        offload_dir=DATA / "offload",
-        device=config["device"],
-        dtype="auto",
-        cpu_offload=config["device"] == "cuda",
-        cuda_max_memory_mb=max(3400, int(vram * 0.85)) if vram else 3400,
-        idle_unload_seconds=0,
-        local_files_only=True,
-    )
-    base.validate_static_policy()
 
-    for device in ([base.device, "cpu"] if base.device == "cuda" else ["cpu"]):
-        settings = replace(
-            base, device=device, dtype="float32" if device == "cpu" else "auto",
-            cpu_offload=device == "cuda"
+def require_qualified_device(device: str) -> None:
+    """Only the hybrid route traverses the hardened admission, watchdog and cleanup path.
+
+    Explicit or automatic CPU/CUDA execution is deliberately not offered: it would bypass those
+    safeguards, and it is never a fallback for a blocked or failed hybrid run.
+    """
+    if device not in QUALIFIED_DEVICES:
+        raise RuntimeError(
+            f"BLOCKED_AUDIO_RUNTIME: device '{device}' is not qualified; only "
+            f"{sorted(QUALIFIED_DEVICES)} runs under the thermal gate, watchdog and scope cleanup"
         )
-        manager = ModelManager(settings)
-        try:
-            with ThermalGuard(manager, job_id, device) as guard:
-                print(f"Loading {revisions['revision']} on {device}", flush=True)
-                manager.load()
-                if guard.abort.is_set():
-                    raise RuntimeError("Hardware thermal stop during model load")
-                result = manager.synthesize(request)
-                if guard.abort.is_set():
-                    raise RuntimeError("Hardware thermal stop during synthesis")
-                return result.model_dump(mode="json")
-        except Exception as exc:
-            # Only CUDA memory failures may trigger an automatic retry on CPU.
-            if device != "cuda" or not any(
-                marker in str(exc).lower()
-                for marker in ("out of memory", "cuda oom", "cuda_out_of_memory")
-            ):
-                raise
-            print(f"GPU OOM; falling back to VibeVoice CPU fp32: {exc}", flush=True)
-        finally:
-            manager.shutdown()
-    raise RuntimeError("No successful VibeVoice execution path")
+
+
+def execute(job_id: str, config: dict, output: Path) -> dict:
+    require_qualified_device(config["device"])
+    return run_hybrid(job_id, config, output)
 
 
 def run(args) -> int:
@@ -381,11 +255,13 @@ def run(args) -> int:
             for key, path in config["references"].items()
         },
         "output_dir": str(DATA / "output"),
+        "qualified_route": config["device"] in QUALIFIED_DEVICES,
     }
     if args.dry_run:
         print(json.dumps(public, indent=2))
         return 0
 
+    require_qualified_device(config["device"])
     DATA.mkdir(parents=True, exist_ok=True)
     runs = DATA / "runs"
     runs.mkdir(exist_ok=True)
@@ -446,7 +322,7 @@ def main() -> int:
             return run(args)
         # A detached worker survives tool/terminal timeouts. The worker owns the
         # file lock, thermal guard, model lifecycle and status JSON.
-        job_config(args)  # Fail fast on missing model or reference data.
+        require_qualified_device(job_config(args)["device"])  # Fail fast, before detaching.
         runs.mkdir(parents=True, exist_ok=True)
         log = runs / f"{args.job_id}.log"
         command = [
